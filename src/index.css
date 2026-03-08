@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+/* Hide number input spinners */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type=number] {
+  -moz-appearance: textfield;
+}
+
+@theme {
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  --bg: #E4E3E0;
+  --ink: #141414;
+  --line: #141414;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+.data-row {
+  display: grid;
+  grid-template-columns: 30px 160px 60px 150px 200px 120px 110px 110px 110px 200px 1fr 40px;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid rgba(20, 20, 20, 0.1);
+  transition: background 0.2s ease, color 0.2s ease;
+  align-items: center;
+}
+
+/* Hover effect removed */
+/* .data-row:hover {
+  background: var(--ink);
+  color: var(--bg);
+} */
+
+.col-header {
+  font-family: 'Georgia', serif;
+  font-style: italic;
+  font-size: 10px;
+  opacity: 0.6;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.data-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: -0.03em;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(20, 20, 20, 0.2);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(20, 20, 20, 0.4);
+}
+

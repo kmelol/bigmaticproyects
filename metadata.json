@@ -1,0 +1,5 @@
+{
+  "name": "ProjectFlow",
+  "description": "A professional project planning and management tool with data grid views and CSV/Excel import capabilities.",
+  "requestFramePermissions": []
+}
