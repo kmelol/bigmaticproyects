@@ -26,4 +26,7 @@ export interface Task {
   traslados_externos: number;
   equipos_embalados: number;
   comments: string;
+  cgp_2: string;
+  visita_fallida: number;
+  segunda_visita: number;
 }

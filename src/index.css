@@ -17,7 +17,7 @@ input[type=number] {
 }
 
 :root {
-  --bg: #E4E3E0;
+  --bg: #D1D1D1;
   --ink: #141414;
   --line: #141414;
 }
@@ -30,8 +30,9 @@ body {
 
 .data-row {
   display: grid;
-  grid-template-columns: 30px 160px 60px 150px 200px 120px 110px 110px 110px 200px 1fr 40px;
-  padding: 0.4rem 0.75rem;
+  grid-template-columns: 35px 160px 60px 140px 200px 120px 120px 110px 110px 240px 160px 70px 70px 1fr 40px;
+  column-gap: 12px;
+  padding: 0.5rem 1rem;
   border-bottom: 1px solid rgba(20, 20, 20, 0.1);
   transition: background 0.2s ease, color 0.2s ease;
   align-items: center;

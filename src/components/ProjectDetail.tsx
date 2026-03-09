@@ -28,6 +28,8 @@ export default function ProjectDetail() {
     taskId: null
   });
 
+  const prevValues = useRef<Record<number, string>>({});
+
   useEffect(() => {
     fetchProject();
     fetchTasks();
@@ -64,7 +66,10 @@ export default function ProjectDetail() {
       traslados_internos: 0,
       traslados_externos: 0,
       equipos_embalados: 0,
-      comments: ""
+      comments: "",
+      cgp_2: "",
+      visita_fallida: 0,
+      segunda_visita: 0
     };
     const res = await fetch(`/api/projects/${id}/tasks`, {
       method: "POST",
@@ -152,7 +157,10 @@ export default function ProjectDetail() {
       traslados_internos: parseInt(findValue(item, ['traslados_internos', 'internos', 'traslado interno']) || "0"),
       traslados_externos: parseInt(findValue(item, ['traslados_externos', 'externos', 'traslado externo']) || "0"),
       equipos_embalados: parseInt(findValue(item, ['equipos_embalados', 'embalados', 'embalaje']) || "0"),
-      comments: findValue(item, ['comments', 'comentarios', 'notas', 'observaciones', 'detalle']) || ""
+      comments: findValue(item, ['comments', 'comentarios', 'notas', 'observaciones', 'detalle']) || "",
+      cgp_2: findValue(item, ['cgp_2', 'cgp2', 'router']) || "",
+      visita_fallida: parseInt(findValue(item, ['visita_fallida', 'fallida']) || "0"),
+      segunda_visita: parseInt(findValue(item, ['segunda_visita', 'segunda']) || "0")
     }));
 
     try {
@@ -173,17 +181,40 @@ export default function ProjectDetail() {
     }
   };
 
-  const exportToCSV = () => {
-    const csv = Papa.unparse(tasks);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `${project?.name}_tasks.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const exportToExcel = () => {
+    const exportData = tasks.map((t, idx) => ({
+      '#': idx + 1,
+      'INC': t.title,
+      'Oficina': t.assignee,
+      'Localidad': t.category,
+      'Dirección': t.address,
+      'Provincia': t.province,
+      'Estado': t.status,
+      'Inventario': t.priority,
+      'PRL': t.prl,
+      'Fecha Inicio': t.start_date,
+      'Fecha Fin': t.end_date,
+      'Puestos Maquetados': t.puestos_maquetados,
+      'Traslados Internos': t.traslados_internos,
+      'Traslados Externos': t.traslados_externos,
+      'Equipos Embalados': t.equipos_embalados,
+      'CGP_2': t.cgp_2,
+      'Visita Fallida': t.visita_fallida,
+      'Segunda Visita': t.segunda_visita,
+      'Comentarios': t.comments
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Tareas");
+    
+    // Auto-size columns
+    const colWidths = Object.keys(exportData[0] || {}).map(key => ({
+      wch: Math.max(key.length, ...exportData.map(row => String(row[key as keyof typeof row]).length)) + 2
+    }));
+    ws['!cols'] = colWidths;
+
+    XLSX.writeFile(wb, `${project?.name}_Bigmatic_ProjectFlow.xlsx`);
   };
 
   const filteredTasks = tasks.filter(t => 
@@ -202,10 +233,21 @@ export default function ProjectDetail() {
     return new Date(a.end_date).getTime() - new Date(b.end_date).getTime();
   });
 
+  const isOneDayAway = (dateStr: string) => {
+    if (!dateStr) return false;
+    const deadline = new Date(dateStr);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    deadline.setHours(0, 0, 0, 0);
+    const diffTime = deadline.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays === 1;
+  };
+
   if (loading) return <div className="p-12 font-sans text-sm text-slate-500 animate-pulse">Cargando Datos de la Misión...</div>;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-120px)] bg-slate-50">
+    <div className="flex flex-col h-[calc(100vh-120px)] bg-slate-100">
       {/* Detail Header */}
       <div className="p-6 border-b border-slate-200 bg-white shadow-sm">
         <div className="flex items-center gap-4 mb-6">
@@ -263,7 +305,7 @@ export default function ProjectDetail() {
               {importing ? 'Importando...' : 'Importar'}
             </button>
             <button 
-              onClick={exportToCSV}
+              onClick={exportToExcel}
               className="flex items-center gap-2 px-4 py-2 border border-slate-200 hover:border-blue-700 text-slate-700 transition-all text-[10px] font-bold uppercase tracking-widest rounded-md"
             >
               <Download size={14} /> Exportar
@@ -279,22 +321,25 @@ export default function ProjectDetail() {
       </div>
 
       {/* Data Grid */}
-      <div className="flex-1 overflow-auto bg-slate-50">
-        <div className="min-w-[1000px] p-6">
+      <div className="flex-1 overflow-auto bg-slate-100">
+        <div className="min-w-[1850px] p-6">
           {/* Grid Header */}
-          <div className="data-row bg-slate-200/50 sticky top-0 z-10 border-b border-slate-300 rounded-t-lg">
-            <div className="col-header text-slate-500">#</div>
-            <div className="col-header text-slate-500">INC</div>
-            <div className="col-header text-slate-500">Ofic.</div>
-            <div className="col-header text-slate-500">Localidad</div>
-            <div className="col-header text-slate-500">Dirección</div>
-            <div className="col-header text-slate-500">Provincia</div>
-            <div className="col-header text-slate-500">Estado</div>
-            <div className="col-header text-slate-500">Inventario</div>
-            <div className="col-header text-slate-500">PRL</div>
-            <div className="col-header text-slate-500">Fecha Cliente/Bigmatic</div>
-            <div className="col-header text-slate-500"></div>
-            <div className="col-header text-right text-slate-500">Acc.</div>
+          <div className="data-row bg-slate-300/50 sticky top-0 z-10 border-b border-slate-400 rounded-t-lg">
+            <div className="col-header text-slate-600">#</div>
+            <div className="col-header text-slate-600">INC</div>
+            <div className="col-header text-slate-600">Ofic.</div>
+            <div className="col-header text-slate-600">Localidad</div>
+            <div className="col-header text-slate-600">Dirección</div>
+            <div className="col-header text-slate-600">Provincia</div>
+            <div className="col-header text-slate-600">Estado</div>
+            <div className="col-header text-slate-600">Inventario</div>
+            <div className="col-header text-slate-600">PRL</div>
+            <div className="col-header text-slate-600">Fecha Cliente/Bigmatic</div>
+            <div className="col-header text-slate-600">CGP_2</div>
+            <div className="col-header text-slate-600 text-center">V. Fall.</div>
+            <div className="col-header text-slate-600 text-center">2ª Vis.</div>
+            <div className="col-header text-slate-600"></div>
+            <div className="col-header text-right text-slate-600">Acc.</div>
           </div>
 
           {/* Grid Body */}
@@ -308,6 +353,7 @@ export default function ProjectDetail() {
                   className={`data-row group transition-colors ${
                     task.status === 'Cerrado' ? 'bg-emerald-50/60 hover:bg-emerald-100/60' : 
                     task.status === 'Incidencia' ? 'bg-rose-50/60 hover:bg-rose-100/60' : 
+                    isOneDayAway(task.start_date) ? 'bg-orange-100/80 hover:bg-orange-200/80' :
                     'hover:bg-white'
                   } ${expandedTaskId === task.id ? 'ring-1 ring-blue-200 z-10' : ''} border-b border-slate-100`}
                 >
@@ -326,8 +372,19 @@ export default function ProjectDetail() {
                     type="text"
                     value={task.title}
                     disabled={task.status === 'Cerrado'}
+                    onFocus={() => {
+                      prevValues.current[task.id] = task.title;
+                    }}
+                    onKeyDown={(e) => {
+                      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                        if (task.title !== prevValues.current[task.id]) {
+                          updateTask(task.id, { title: prevValues.current[task.id] });
+                          e.preventDefault();
+                        }
+                      }
+                    }}
                     onChange={(e) => updateTask(task.id, { title: e.target.value })}
-                    className={`w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-0.5 font-bold tracking-tight text-slate-900 ${task.status === 'Cerrado' ? 'text-emerald-900' : task.status === 'Incidencia' ? 'text-rose-900' : ''} ${task.status === 'Cerrado' ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    className={`w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-0.5 font-bold tracking-tight text-slate-900 ${task.status === 'Cerrado' ? 'text-emerald-900' : task.status === 'Incidencia' ? 'text-rose-900' : isOneDayAway(task.start_date) ? 'text-orange-900' : ''} ${task.status === 'Cerrado' ? 'opacity-70 cursor-not-allowed' : ''}`}
                     placeholder="INC000000000000"
                   />
                 </div>
@@ -428,6 +485,36 @@ export default function ProjectDetail() {
                     disabled={task.status === 'Cerrado'}
                     onChange={(e) => updateTask(task.id, { end_date: e.target.value })}
                     className={`bg-transparent focus:outline-none ${task.status === 'Cerrado' ? 'text-emerald-700' : task.status === 'Incidencia' ? 'text-rose-700' : ''} ${task.status === 'Cerrado' ? 'cursor-not-allowed' : ''}`}
+                  />
+                </div>
+                <div className="pr-2">
+                  <input 
+                    type="text"
+                    value={task.cgp_2}
+                    disabled={task.status === 'Cerrado'}
+                    onChange={(e) => updateTask(task.id, { cgp_2: e.target.value })}
+                    className={`w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-0.5 text-[10px] font-bold text-slate-600 ${task.status === 'Cerrado' ? 'text-emerald-800' : task.status === 'Incidencia' ? 'text-rose-800' : ''} ${task.status === 'Cerrado' ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    placeholder="Router..."
+                  />
+                </div>
+                <div className="pr-2 text-center">
+                  <input 
+                    type="number"
+                    min="0"
+                    value={task.visita_fallida}
+                    disabled={task.status === 'Cerrado'}
+                    onChange={(e) => updateTask(task.id, { visita_fallida: parseInt(e.target.value) || 0 })}
+                    className={`w-10 bg-transparent focus:bg-white text-center focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-0.5 data-value text-slate-600 ${task.status === 'Cerrado' ? 'text-emerald-800' : task.status === 'Incidencia' ? 'text-rose-800' : ''} ${task.status === 'Cerrado' ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  />
+                </div>
+                <div className="pr-2 text-center">
+                  <input 
+                    type="number"
+                    min="0"
+                    value={task.segunda_visita}
+                    disabled={task.status === 'Cerrado'}
+                    onChange={(e) => updateTask(task.id, { segunda_visita: parseInt(e.target.value) || 0 })}
+                    className={`w-10 bg-transparent focus:bg-white text-center focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-0.5 data-value text-slate-600 ${task.status === 'Cerrado' ? 'text-emerald-800' : task.status === 'Incidencia' ? 'text-rose-800' : ''} ${task.status === 'Cerrado' ? 'opacity-70 cursor-not-allowed' : ''}`}
                   />
                 </div>
                 <div></div>

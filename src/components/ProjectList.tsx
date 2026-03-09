@@ -98,7 +98,7 @@ export default function ProjectList() {
   };
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
+    <div className="p-8 max-w-6xl mx-auto bg-slate-100 min-h-screen">
       <div className="flex justify-between items-end mb-12">
         <div>
           <h1 className="text-4xl font-bold tracking-tight text-slate-900 mb-2">Gestión de Proyectos</h1>
