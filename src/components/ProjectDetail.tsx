@@ -9,6 +9,7 @@ import { Project, Task } from "../types";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { motion, AnimatePresence } from "motion/react";
+import ConfirmDialog from "./ConfirmDialog";
 
 export default function ProjectDetail() {
   const { id } = useParams();
@@ -20,6 +21,12 @@ export default function ProjectDetail() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [importing, setImporting] = useState(false);
+
+  const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
+  const [confirmDeleteTask, setConfirmDeleteTask] = useState<{ isOpen: boolean; taskId: number | null }>({
+    isOpen: false,
+    taskId: null
+  });
 
   useEffect(() => {
     fetchProject();
@@ -182,7 +189,18 @@ export default function ProjectDetail() {
   const filteredTasks = tasks.filter(t => 
     t.title.toLowerCase().includes(search.toLowerCase()) ||
     t.assignee.toLowerCase().includes(search.toLowerCase())
-  );
+  ).sort((a, b) => {
+    // 1. Closed tasks always at the end
+    if (a.status === 'Cerrado' && b.status !== 'Cerrado') return 1;
+    if (a.status !== 'Cerrado' && b.status === 'Cerrado') return -1;
+    
+    // 2. If both are closed or both are not closed, sort by end_date
+    if (!a.end_date && !b.end_date) return 0;
+    if (!a.end_date) return 1;
+    if (!b.end_date) return -1;
+    
+    return new Date(a.end_date).getTime() - new Date(b.end_date).getTime();
+  });
 
   if (loading) return <div className="p-12 font-sans text-sm text-slate-500 animate-pulse">Cargando Datos de la Misión...</div>;
 
@@ -224,7 +242,7 @@ export default function ProjectDetail() {
 
           <div className="flex gap-2">
             <button 
-              onClick={deleteProject}
+              onClick={() => setConfirmDeleteProject(true)}
               className="flex items-center gap-2 px-4 py-2 border border-red-100 text-red-600 hover:bg-red-50 transition-all text-[10px] font-bold uppercase tracking-widest rounded-md"
             >
               <Trash2 size={14} /> Borrar Proyecto
@@ -287,10 +305,18 @@ export default function ProjectDetail() {
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 10 }}
-                  className={`data-row group transition-colors hover:bg-white ${expandedTaskId === task.id ? 'bg-blue-50/30' : ''} border-b border-slate-100`}
+                  className={`data-row group transition-colors ${
+                    task.status === 'Cerrado' ? 'bg-emerald-50/60 hover:bg-emerald-100/60' : 
+                    task.status === 'Incidencia' ? 'bg-rose-50/60 hover:bg-rose-100/60' : 
+                    'hover:bg-white'
+                  } ${expandedTaskId === task.id ? 'ring-1 ring-blue-200 z-10' : ''} border-b border-slate-100`}
                 >
                   <div 
-                    className="data-value text-slate-300 cursor-pointer hover:text-blue-600 transition-all font-bold"
+                    className={`data-value cursor-pointer transition-all font-bold ${
+                      task.status === 'Cerrado' ? 'text-emerald-400' : 
+                      task.status === 'Incidencia' ? 'text-rose-400' : 
+                      'text-slate-300 hover:text-blue-600'
+                    }`}
                     onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
                   >
                     {idx + 1}
@@ -301,7 +327,7 @@ export default function ProjectDetail() {
                     value={task.title}
                     disabled={task.status === 'Cerrado'}
                     onChange={(e) => updateTask(task.id, { title: e.target.value })}
-                    className={`w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-0.5 font-bold tracking-tight text-slate-900 ${task.status === 'Cerrado' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-0.5 font-bold tracking-tight text-slate-900 ${task.status === 'Cerrado' ? 'text-emerald-900' : task.status === 'Incidencia' ? 'text-rose-900' : ''} ${task.status === 'Cerrado' ? 'opacity-70 cursor-not-allowed' : ''}`}
                     placeholder="INC000000000000"
                   />
                 </div>
@@ -312,7 +338,7 @@ export default function ProjectDetail() {
                     disabled={task.status === 'Cerrado'}
                     maxLength={4}
                     onChange={(e) => updateTask(task.id, { assignee: e.target.value })}
-                    className={`w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-0.5 data-value text-slate-600 ${task.status === 'Cerrado' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-0.5 data-value text-slate-600 ${task.status === 'Cerrado' ? 'text-emerald-800' : task.status === 'Incidencia' ? 'text-rose-800' : ''} ${task.status === 'Cerrado' ? 'opacity-70 cursor-not-allowed' : ''}`}
                     placeholder="0000"
                   />
                 </div>
@@ -322,7 +348,7 @@ export default function ProjectDetail() {
                     value={task.category}
                     disabled={task.status === 'Cerrado'}
                     onChange={(e) => updateTask(task.id, { category: e.target.value })}
-                    className={`w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-0.5 data-value text-slate-600 ${task.status === 'Cerrado' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-0.5 data-value text-slate-600 ${task.status === 'Cerrado' ? 'text-emerald-800' : task.status === 'Incidencia' ? 'text-rose-800' : ''} ${task.status === 'Cerrado' ? 'opacity-70 cursor-not-allowed' : ''}`}
                     placeholder="LOCALIDAD"
                   />
                 </div>
@@ -332,7 +358,7 @@ export default function ProjectDetail() {
                     value={task.address}
                     disabled={task.status === 'Cerrado'}
                     onChange={(e) => updateTask(task.id, { address: e.target.value })}
-                    className={`w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-0.5 data-value text-[10px] font-bold text-slate-500 ${task.status === 'Cerrado' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-0.5 data-value text-[10px] font-bold text-slate-500 ${task.status === 'Cerrado' ? 'text-emerald-700' : task.status === 'Incidencia' ? 'text-rose-700' : ''} ${task.status === 'Cerrado' ? 'opacity-70 cursor-not-allowed' : ''}`}
                     placeholder="DIRECCIÓN"
                   />
                 </div>
@@ -342,7 +368,7 @@ export default function ProjectDetail() {
                     value={task.province}
                     disabled={task.status === 'Cerrado'}
                     onChange={(e) => updateTask(task.id, { province: e.target.value })}
-                    className={`w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-0.5 data-value text-[10px] font-bold text-slate-500 ${task.status === 'Cerrado' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-0.5 data-value text-[10px] font-bold text-slate-500 ${task.status === 'Cerrado' ? 'text-emerald-700' : task.status === 'Incidencia' ? 'text-rose-700' : ''} ${task.status === 'Cerrado' ? 'opacity-70 cursor-not-allowed' : ''}`}
                     placeholder="PROVINCIA"
                   />
                 </div>
@@ -350,7 +376,11 @@ export default function ProjectDetail() {
                   <select 
                     value={task.status}
                     onChange={(e) => updateTask(task.id, { status: e.target.value as any })}
-                    className="bg-transparent focus:bg-white focus:outline-none p-1 text-[10px] font-bold uppercase tracking-widest cursor-pointer w-full text-slate-700"
+                    className={`bg-transparent focus:bg-white focus:outline-none p-1 text-[10px] font-bold uppercase tracking-widest cursor-pointer w-full ${
+                      task.status === 'Cerrado' ? 'text-emerald-700' : 
+                      task.status === 'Incidencia' ? 'text-rose-700' : 
+                      'text-slate-700'
+                    }`}
                   >
                     <option value="Pendiente">○ PENDIENTE</option>
                     <option value="Cerrado">● CERRADO</option>
@@ -389,7 +419,7 @@ export default function ProjectDetail() {
                     value={task.start_date}
                     disabled={task.status === 'Cerrado'}
                     onChange={(e) => updateTask(task.id, { start_date: e.target.value })}
-                    className={`bg-transparent focus:outline-none ${task.status === 'Cerrado' ? 'cursor-not-allowed' : ''}`}
+                    className={`bg-transparent focus:outline-none ${task.status === 'Cerrado' ? 'text-emerald-700' : task.status === 'Incidencia' ? 'text-rose-700' : ''} ${task.status === 'Cerrado' ? 'cursor-not-allowed' : ''}`}
                   />
                   <span className="text-slate-300">→</span>
                   <input 
@@ -397,13 +427,13 @@ export default function ProjectDetail() {
                     value={task.end_date}
                     disabled={task.status === 'Cerrado'}
                     onChange={(e) => updateTask(task.id, { end_date: e.target.value })}
-                    className={`bg-transparent focus:outline-none ${task.status === 'Cerrado' ? 'cursor-not-allowed' : ''}`}
+                    className={`bg-transparent focus:outline-none ${task.status === 'Cerrado' ? 'text-emerald-700' : task.status === 'Incidencia' ? 'text-rose-700' : ''} ${task.status === 'Cerrado' ? 'cursor-not-allowed' : ''}`}
                   />
                 </div>
                 <div></div>
                 <div className="flex justify-end pr-2">
                   <button 
-                    onClick={() => deleteTask(task.id)}
+                    onClick={() => setConfirmDeleteTask({ isOpen: true, taskId: task.id })}
                     disabled={task.status === 'Cerrado'}
                     className={`p-2 transition-all rounded-md hover:bg-red-50 text-slate-300 hover:text-red-600 ${task.status === 'Cerrado' ? 'opacity-20 cursor-not-allowed' : ''}`}
                   >
@@ -502,13 +532,37 @@ export default function ProjectDetail() {
       <div className="p-4 border-t border-slate-200 bg-white flex justify-between items-center text-[10px] font-mono uppercase tracking-widest text-slate-400">
         <div className="flex gap-6">
           <span>Total de Tareas: {tasks.length}</span>
-          <span className="text-slate-500">Cerradas: {tasks.filter(t => t.status === 'Cerrado').length}</span>
-          <span className="text-red-400">Incidencias: {tasks.filter(t => t.status === 'Incidencia').length}</span>
+          <span className="text-emerald-500">Cerradas: {tasks.filter(t => t.status === 'Cerrado').length}</span>
+          <span className="text-rose-500">Incidencias: {tasks.filter(t => t.status === 'Incidencia').length}</span>
         </div>
         <div>
           Última Sincronización: {new Date().toLocaleTimeString()}
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={confirmDeleteProject}
+        onClose={() => setConfirmDeleteProject(false)}
+        onConfirm={deleteProject}
+        title="¿Borrar Proyecto?"
+        message="Esta acción eliminará permanentemente el proyecto y todas sus tareas asociadas. Esta operación no se puede deshacer."
+        confirmText="Borrar Proyecto"
+        variant="danger"
+      />
+
+      <ConfirmDialog
+        isOpen={confirmDeleteTask.isOpen}
+        onClose={() => setConfirmDeleteTask({ isOpen: false, taskId: null })}
+        onConfirm={() => {
+          if (confirmDeleteTask.taskId) {
+            deleteTask(confirmDeleteTask.taskId);
+          }
+        }}
+        title="¿Borrar Tarea?"
+        message="¿Estás seguro de que deseas eliminar esta tarea? Esta acción no se puede deshacer."
+        confirmText="Borrar Tarea"
+        variant="danger"
+      />
     </div>
   );
 }

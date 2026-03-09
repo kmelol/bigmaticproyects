@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Plus, Trash2, Archive, Folder, ArrowRight, X } from "lucide-react";
 import { Project } from "../types";
 import { motion, AnimatePresence } from "motion/react";
+import ConfirmDialog from "./ConfirmDialog";
 
 export default function ProjectList() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -10,6 +11,11 @@ export default function ProjectList() {
   const [newProject, setNewProject] = useState({ name: "", description: "", code: "" });
   const [dbStatus, setDbStatus] = useState<'loading' | 'ok' | 'error'>('loading');
   const [dbError, setDbError] = useState<string | null>(null);
+
+  const [confirmDelete, setConfirmDelete] = useState<{ isOpen: boolean; projectId: number | null }>({
+    isOpen: false,
+    projectId: null
+  });
 
   useEffect(() => {
     fetchProjects();
@@ -171,7 +177,7 @@ export default function ProjectList() {
                     <button 
                       onClick={(e) => {
                         e.preventDefault();
-                        deleteProject(project.id);
+                        setConfirmDelete({ isOpen: true, projectId: project.id });
                       }}
                       className="p-2 transition-colors rounded-md hover:bg-red-50 text-slate-400 hover:text-red-600"
                       title="Borrar"
@@ -275,6 +281,20 @@ export default function ProjectList() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <ConfirmDialog
+        isOpen={confirmDelete.isOpen}
+        onClose={() => setConfirmDelete({ isOpen: false, projectId: null })}
+        onConfirm={() => {
+          if (confirmDelete.projectId) {
+            deleteProject(confirmDelete.projectId);
+          }
+        }}
+        title="¿Borrar Proyecto?"
+        message="Esta acción eliminará permanentemente el proyecto y todas sus tareas asociadas. Esta operación no se puede deshacer."
+        confirmText="Borrar Proyecto"
+        variant="danger"
+      />
     </div>
   );
 }
