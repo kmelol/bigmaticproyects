@@ -98,21 +98,21 @@ export default function ProjectList() {
   };
 
   return (
-    <div className="p-8 max-w-6xl mx-auto bg-slate-100 min-h-screen">
+    <div className="p-8 max-w-6xl mx-auto bg-slate-950 min-h-screen">
       <div className="flex justify-between items-end mb-12">
         <div>
-          <h1 className="text-4xl font-bold tracking-tight text-slate-900 mb-2">Gestión de Proyectos</h1>
+          <h1 className="text-4xl font-bold tracking-tight text-white mb-2">Gestión de Proyectos</h1>
           <div className="flex items-center gap-3">
-            <p className="text-sm text-slate-500">Operaciones Activas y Archivos de Bigmatic</p>
+            <p className="text-sm text-slate-400">Operaciones Activas y Archivos de Bigmatic</p>
             <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-widest border ${
-              dbStatus === 'ok' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 
-              dbStatus === 'error' ? 'bg-rose-50 text-rose-600 border-rose-200' : 
-              'bg-slate-50 text-slate-500 border-slate-200'
+              dbStatus === 'ok' ? 'bg-emerald-900/30 text-emerald-400 border-emerald-800/50' : 
+              dbStatus === 'error' ? 'bg-rose-900/30 text-rose-400 border-rose-800/50' : 
+              'bg-slate-900 text-slate-500 border-slate-800'
             }`}>
               <div className={`w-1.5 h-1.5 rounded-full ${
                 dbStatus === 'ok' ? 'bg-emerald-500 animate-pulse' : 
                 dbStatus === 'error' ? 'bg-rose-500' : 
-                'bg-slate-400'
+                'bg-slate-600'
               }`} />
               {dbStatus === 'ok' ? 'DB Online' : dbStatus === 'error' ? 'DB Offline' : 'Checking DB...'}
             </div>
@@ -124,13 +124,13 @@ export default function ProjectList() {
                   checkDbHealth();
                   fetchProjects();
                 }}
-                className="text-[9px] text-blue-600 hover:text-blue-800 font-bold uppercase tracking-tighter underline"
+                className="text-[9px] text-blue-400 hover:text-blue-300 font-bold uppercase tracking-tighter underline"
               >
                 Reintentar
               </button>
             )}
             {dbStatus === 'error' && dbError && (
-              <span className="text-[9px] text-rose-400 font-medium animate-fade-in truncate max-w-[200px]">
+              <span className="text-[9px] text-rose-400/70 font-medium animate-fade-in truncate max-w-[200px]">
                 {dbError}
               </span>
             )}
@@ -138,7 +138,7 @@ export default function ProjectList() {
         </div>
         <button 
           onClick={() => setIsModalOpen(true)}
-          className="bg-blue-700 hover:bg-blue-800 text-white px-6 py-3 rounded-md flex items-center gap-2 transition-all active:scale-95 text-xs font-semibold tracking-widest shadow-md"
+          className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-lg flex items-center gap-2 transition-all active:scale-95 text-xs font-bold tracking-widest shadow-lg shadow-blue-900/20"
         >
           <Plus size={16} /> Nuevo Proyecto
         </button>
@@ -153,13 +153,13 @@ export default function ProjectList() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className={`group relative bg-white border border-slate-200 p-6 flex flex-col justify-between min-h-[220px] transition-all hover:shadow-lg hover:border-blue-200 rounded-lg ${project.status === 'archived' ? 'opacity-60 grayscale bg-slate-50' : ''}`}
+              className={`group relative bg-slate-900 border border-slate-800 p-6 flex flex-col justify-between min-h-[220px] transition-all hover:shadow-2xl hover:border-blue-500/50 rounded-xl ${project.status === 'archived' ? 'opacity-40 grayscale bg-slate-900/50' : ''}`}
             >
               <div>
                 <div className="flex justify-between items-start mb-4">
                   <div className="flex flex-col">
-                    <span className="text-[10px] font-mono font-bold text-slate-400 mb-1 tracking-widest uppercase">ID: {project.code || project.id.toString().padStart(3, '0')}</span>
-                    <div className="bg-blue-50 p-2 rounded-md w-fit text-blue-700">
+                    <span className="text-[10px] font-mono font-bold text-slate-500 mb-1 tracking-widest uppercase">ID: {project.code || project.id.toString().padStart(3, '0')}</span>
+                    <div className="bg-blue-900/30 p-2 rounded-lg w-fit text-blue-400 border border-blue-800/50">
                       <Folder size={20} />
                     </div>
                   </div>
@@ -169,7 +169,7 @@ export default function ProjectList() {
                         e.preventDefault();
                         archiveProject(project.id, project.status);
                       }}
-                      className="p-2 transition-colors rounded-md hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+                      className="p-2 transition-colors rounded-lg hover:bg-slate-800 text-slate-500 hover:text-slate-300"
                       title={project.status === 'active' ? 'Archivar' : 'Desarchivar'}
                     >
                       <Archive size={14} />
@@ -179,24 +179,24 @@ export default function ProjectList() {
                         e.preventDefault();
                         setConfirmDelete({ isOpen: true, projectId: project.id });
                       }}
-                      className="p-2 transition-colors rounded-md hover:bg-red-50 text-slate-400 hover:text-red-600"
+                      className="p-2 transition-colors rounded-lg hover:bg-rose-900/30 text-slate-500 hover:text-rose-400"
                       title="Borrar"
                     >
                       <Trash2 size={14} />
                     </button>
                   </div>
                 </div>
-                <h3 className="text-lg font-bold text-slate-900 mb-2 group-hover:text-blue-700 transition-colors">{project.name}</h3>
-                <p className="text-sm text-slate-600 line-clamp-2 mb-4">{project.description || "Sin descripción proporcionada."}</p>
+                <h3 className="text-lg font-bold text-white mb-2 group-hover:text-blue-400 transition-colors">{project.name}</h3>
+                <p className="text-sm text-slate-400 line-clamp-2 mb-4">{project.description || "Sin descripción proporcionada."}</p>
               </div>
               
-              <div className="flex justify-between items-center mt-4 pt-4 border-t border-slate-100">
-                <span className="text-[10px] font-mono text-slate-400 uppercase">
+              <div className="flex justify-between items-center mt-4 pt-4 border-t border-slate-800">
+                <span className="text-[10px] font-mono text-slate-500 uppercase">
                   {new Date(project.created_at).toLocaleDateString()}
                 </span>
                 <Link 
                   to={`/project/${project.id}`}
-                  className="flex items-center gap-1 text-xs font-bold text-blue-700 hover:text-blue-800 uppercase tracking-widest transition-all"
+                  className="flex items-center gap-1 text-xs font-bold text-blue-400 hover:text-blue-300 uppercase tracking-widest transition-all"
                 >
                   Abrir <ArrowRight size={14} />
                 </Link>
@@ -220,21 +220,21 @@ export default function ProjectList() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsModalOpen(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm cursor-pointer"
+              className="absolute inset-0 bg-black/80 backdrop-blur-md cursor-pointer"
             />
             <motion.div 
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative z-10 bg-white w-full max-w-md p-8 border border-slate-200 shadow-2xl rounded-xl"
+              className="relative z-10 bg-slate-900 w-full max-w-md p-8 border border-slate-800 shadow-2xl rounded-2xl"
             >
               <button 
                 onClick={() => setIsModalOpen(false)}
-                className="absolute top-4 right-4 p-2 rounded-full hover:bg-slate-100 transition-colors text-slate-400"
+                className="absolute top-4 right-4 p-2 rounded-full hover:bg-slate-800 transition-colors text-slate-500"
               >
                 <X size={20} />
               </button>
-                             <h2 className="text-2xl font-bold text-slate-900 mb-6 tracking-tight">Crear Nuevo Proyecto</h2>
+              <h2 className="text-2xl font-bold text-white mb-6 tracking-tight">Crear Nuevo Proyecto</h2>
               
               <form onSubmit={createProject} className="space-y-6">
                 <div className="grid grid-cols-3 gap-4">
@@ -246,7 +246,7 @@ export default function ProjectList() {
                       type="text"
                       value={newProject.name}
                       onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 p-3 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      className="w-full bg-slate-800 border border-slate-700 p-3 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-600"
                       placeholder="Ej. PROYECTO_ALPHA"
                     />
                   </div>
@@ -256,7 +256,7 @@ export default function ProjectList() {
                       type="text"
                       value={newProject.code}
                       onChange={(e) => setNewProject({ ...newProject, code: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 p-3 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      className="w-full bg-slate-800 border border-slate-700 p-3 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-600"
                       placeholder="ALPHA"
                     />
                   </div>
@@ -266,13 +266,13 @@ export default function ProjectList() {
                   <textarea 
                     value={newProject.description}
                     onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-200 p-3 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all min-h-[100px]"
+                    className="w-full bg-slate-800 border border-slate-700 p-3 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all min-h-[100px] placeholder:text-slate-600"
                     placeholder="Objetivos de la misión..."
                   />
                 </div>
                 <button 
                   type="submit"
-                  className="w-full bg-blue-700 hover:bg-blue-800 text-white py-4 rounded-md font-bold uppercase tracking-widest text-xs transition-all shadow-md active:scale-[0.98]"
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-lg font-bold uppercase tracking-widest text-xs transition-all shadow-lg shadow-blue-900/20 active:scale-[0.98]"
                 >
                   Crear Proyecto
                 </button>

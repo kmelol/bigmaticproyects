@@ -38,29 +38,29 @@ export default function ConfirmDialog({
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden"
+            className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden"
           >
             <div className="p-6">
               <div className="flex items-start gap-4">
-                <div className={`p-3 rounded-full ${variant === 'danger' ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'}`}>
+                <div className={`p-3 rounded-full ${variant === 'danger' ? 'bg-rose-900/30 text-rose-500' : 'bg-amber-900/30 text-amber-500'}`}>
                   <AlertTriangle size={24} />
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-lg font-bold text-slate-900 mb-1">{title}</h3>
-                  <p className="text-sm text-slate-500 leading-relaxed">{message}</p>
+                  <h3 className="text-lg font-bold text-white mb-1">{title}</h3>
+                  <p className="text-sm text-slate-400 leading-relaxed">{message}</p>
                 </div>
                 <button 
                   onClick={onClose}
-                  className="p-1 text-slate-400 hover:text-slate-600 transition-colors"
+                  className="p-1 text-slate-500 hover:text-slate-300 transition-colors"
                 >
                   <X size={20} />
                 </button>
               </div>
             </div>
-            <div className="flex items-center justify-end gap-3 p-4 bg-slate-50 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-3 p-4 bg-slate-950 border-t border-slate-800">
               <button
                 onClick={onClose}
-                className="px-4 py-2 text-xs font-bold uppercase tracking-widest text-slate-600 hover:text-slate-900 transition-colors"
+                className="px-4 py-2 text-xs font-bold uppercase tracking-widest text-slate-500 hover:text-slate-300 transition-colors"
               >
                 {cancelText}
               </button>
@@ -70,7 +70,7 @@ export default function ConfirmDialog({
                   onClose();
                 }}
                 className={`px-6 py-2 rounded-md text-xs font-bold uppercase tracking-widest text-white shadow-sm transition-all ${
-                  variant === 'danger' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-amber-600 hover:bg-amber-700'
+                  variant === 'danger' ? 'bg-rose-600 hover:bg-rose-500' : 'bg-amber-600 hover:bg-amber-500'
                 }`}
               >
                 {confirmText}

@@ -4,7 +4,7 @@ import {
   ArrowLeft, Plus, Download, Upload, Trash2, 
   ChevronDown, Search, Filter, MoreHorizontal,
   CheckCircle2, Circle, Clock, AlertCircle,
-  Image as ImageIcon, X, Check
+  Image as ImageIcon, X, Check, Settings, Eye, EyeOff
 } from "lucide-react";
 import { Project, Task } from "../types";
 import Papa from "papaparse";
@@ -35,6 +35,8 @@ export default function ProjectDetail() {
   const [pendingTasks, setPendingTasks] = useState<any[]>([]);
   const [availableColumns, setAvailableColumns] = useState<string[]>([]);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  const [showColumnToggle, setShowColumnToggle] = useState(false);
 
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
   const [confirmDeleteTask, setConfirmDeleteTask] = useState<{ isOpen: boolean; taskId: number | null }>({
@@ -140,13 +142,21 @@ export default function ProjectDetail() {
       ...updates,
       dynamic_data: updates.dynamic_data ? { ...task.dynamic_data, ...updates.dynamic_data } : task.dynamic_data
     };
+
+    // Optimistic update
+    setTasks(prev => prev.map(t => t.id === taskId ? updatedTask : t));
     
-    await fetch(`/api/tasks/${taskId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updatedTask),
-    });
-    setTasks(tasks.map(t => t.id === taskId ? updatedTask : t));
+    try {
+      await fetch(`/api/tasks/${taskId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedTask),
+      });
+    } catch (error) {
+      console.error("Error updating task:", error);
+      // Rollback on error
+      fetchTasks();
+    }
   };
 
   const deleteTask = async (taskId: number) => {
@@ -414,7 +424,18 @@ export default function ProjectDetail() {
     return diffDays === 1;
   };
 
-  const dynamicColumns = Array.from(new Set((Array.isArray(tasks) ? tasks : []).flatMap(t => Object.keys(t.dynamic_data || {}))));
+  const allDynamicColumns = Array.from(new Set((Array.isArray(tasks) ? tasks : []).flatMap(t => Object.keys(t.dynamic_data || {}))));
+  const dynamicColumns = allDynamicColumns.filter(col => !hiddenColumns.has(col));
+
+  const toggleColumnVisibility = (col: string) => {
+    const newHidden = new Set(hiddenColumns);
+    if (newHidden.has(col)) {
+      newHidden.delete(col);
+    } else {
+      newHidden.add(col);
+    }
+    setHiddenColumns(newHidden);
+  };
 
   const filteredTasks = (Array.isArray(tasks) ? tasks : []).filter(t => {
     const searchStr = search.toLowerCase();
@@ -447,43 +468,98 @@ export default function ProjectDetail() {
   const MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
   return (
-    <div className="flex flex-col h-full bg-slate-100 overflow-hidden">
+    <div className="flex flex-col h-full bg-slate-950 overflow-hidden">
       {/* Detail Header */}
-      <div className="p-6 border-b border-slate-200 bg-white shadow-sm z-20">
+      <div className="p-6 border-b border-slate-800 bg-slate-900 shadow-xl z-20">
         <div className="flex items-center gap-4 mb-6">
-          <Link to={`/project/${id}`} className="p-2 transition-colors rounded-md hover:bg-slate-100 text-slate-400">
+          <Link to={`/project/${id}`} className="p-2 transition-colors rounded-md hover:bg-slate-800 text-slate-500">
             <ArrowLeft size={18} />
           </Link>
           <div>
             <div className="flex items-center gap-3">
-              <span className="text-[10px] font-mono font-bold bg-blue-700 text-white px-2 py-0.5 tracking-widest rounded-sm">
+              <span className="text-[10px] font-mono font-bold bg-blue-600 text-white px-2 py-0.5 tracking-widest rounded-sm">
                 ID: {project?.code || project?.id.toString().padStart(3, '0')}
               </span>
-              <h1 className="text-3xl font-bold text-slate-900 tracking-tight">{project?.name}</h1>
-              <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded flex flex-col items-center">
+              <h1 className="text-3xl font-bold text-white tracking-tight">{project?.name}</h1>
+              <span className="text-xs font-bold text-blue-400 bg-blue-900/30 border border-blue-800/50 px-3 py-1 rounded-lg flex flex-col items-center">
                 <span>{MONTH_NAMES[month - 1]} - Semana {week}</span>
-                <span className="text-[9px] text-blue-400 font-mono lowercase tracking-normal">({getWeekRange(month - 1, week)})</span>
+                <span className="text-[9px] text-blue-500 font-mono lowercase tracking-normal">({getWeekRange(month - 1, week)})</span>
               </span>
             </div>
-            <p className="text-sm text-slate-500 mt-1">{project?.description}</p>
+            <p className="text-sm text-slate-400 mt-1">{project?.description}</p>
           </div>
         </div>
 
         <div className="flex justify-between items-center">
           <div className="flex gap-4">
             <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
               <input 
                 type="text" 
                 placeholder="Buscar tareas..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="bg-slate-50 border border-slate-200 pl-9 pr-4 py-2 text-xs rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 w-64 transition-all"
+                className="bg-slate-800 border border-slate-700 text-slate-200 pl-9 pr-4 py-2 text-xs rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 w-64 transition-all placeholder:text-slate-600"
               />
             </div>
           </div>
 
           <div className="flex gap-2">
+            <div className="relative">
+              <button 
+                onClick={() => setShowColumnToggle(!showColumnToggle)}
+                className={`flex items-center gap-2 px-3 py-2 border border-slate-700 hover:border-blue-500 text-slate-300 hover:text-white transition-all text-[10px] font-bold uppercase tracking-widest rounded-lg ${showColumnToggle ? 'bg-slate-800 border-blue-500' : ''} ${hiddenColumns.size > 0 ? 'border-blue-500/50 text-blue-400' : ''}`}
+                title="Gestionar Columnas Ocultas"
+              >
+                <Eye size={14} />
+                {hiddenColumns.size > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-[8px] w-4 h-4 flex items-center justify-center rounded-full border border-slate-950 shadow-lg">
+                    {hiddenColumns.size}
+                  </span>
+                )}
+              </button>
+              
+              <AnimatePresence>
+                {showColumnToggle && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 p-4"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Columnas</h3>
+                      {hiddenColumns.size > 0 && (
+                        <button 
+                          onClick={() => setHiddenColumns(new Set())}
+                          className="text-[9px] text-blue-400 hover:text-blue-300 font-bold uppercase tracking-tighter underline"
+                        >
+                          Mostrar Todas
+                        </button>
+                      )}
+                    </div>
+                    <div className="space-y-1 max-h-60 overflow-y-auto custom-scrollbar">
+                      {allDynamicColumns.map(col => (
+                        <label 
+                          key={col} 
+                          className={`flex items-center justify-between p-2 rounded-lg cursor-pointer group transition-colors ${hiddenColumns.has(col) ? 'bg-slate-800/30' : 'hover:bg-slate-800'}`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            toggleColumnVisibility(col);
+                          }}
+                        >
+                          <span className={`text-xs ${hiddenColumns.has(col) ? 'text-slate-500' : 'text-slate-300 group-hover:text-white'}`}>{col}</span>
+                          <div className={`p-1 rounded ${hiddenColumns.has(col) ? 'text-slate-600' : 'text-blue-400'}`}>
+                            {hiddenColumns.has(col) ? <EyeOff size={14} /> : <Eye size={14} />}
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
             <input 
               type="file" 
               ref={fileInputRef} 
@@ -494,7 +570,7 @@ export default function ProjectDetail() {
             <button 
               onClick={() => screenshotInputRef.current?.click()}
               disabled={importing}
-              className={`flex items-center gap-2 px-4 py-2 border border-slate-200 hover:border-blue-700 text-slate-700 transition-all text-[10px] font-bold uppercase tracking-widest rounded-md ${importing ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className={`flex items-center gap-2 px-4 py-2 border border-slate-700 hover:border-blue-500 text-slate-300 hover:text-white transition-all text-[10px] font-bold uppercase tracking-widest rounded-lg ${importing ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <ImageIcon size={14} className={importing ? 'animate-pulse' : ''} /> 
               {importing ? 'Procesando...' : 'Captura'}
@@ -509,26 +585,26 @@ export default function ProjectDetail() {
             <button 
               onClick={() => fileInputRef.current?.click()}
               disabled={importing}
-              className={`flex items-center gap-2 px-4 py-2 border border-slate-200 hover:border-blue-700 text-slate-700 transition-all text-[10px] font-bold uppercase tracking-widest rounded-md ${importing ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className={`flex items-center gap-2 px-4 py-2 border border-slate-700 hover:border-blue-500 text-slate-300 hover:text-white transition-all text-[10px] font-bold uppercase tracking-widest rounded-lg ${importing ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <Upload size={14} className={importing ? 'animate-bounce' : ''} /> 
               {importing ? 'Importando...' : 'Importar'}
             </button>
             <button 
               onClick={exportToExcel}
-              className="flex items-center gap-2 px-4 py-2 border border-slate-200 hover:border-blue-700 text-slate-700 transition-all text-[10px] font-bold uppercase tracking-widest rounded-md"
+              className="flex items-center gap-2 px-4 py-2 border border-slate-700 hover:border-blue-500 text-slate-300 hover:text-white transition-all text-[10px] font-bold uppercase tracking-widest rounded-lg"
             >
               <Download size={14} /> Exportar
             </button>
             <button 
               onClick={addTask}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white transition-all text-[10px] font-bold uppercase tracking-widest rounded-md shadow-sm"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white transition-all text-[10px] font-bold uppercase tracking-widest rounded-lg shadow-lg shadow-blue-900/20"
             >
               <Plus size={14} /> Añadir Tarea
             </button>
             <button 
               onClick={() => setConfirmBulkDelete({ isOpen: true, type: 'all' })}
-              className="flex items-center gap-2 px-4 py-2 border border-rose-200 hover:border-rose-500 text-rose-600 hover:bg-rose-50 transition-all text-[10px] font-bold uppercase tracking-widest rounded-md"
+              className="flex items-center gap-2 px-4 py-2 border border-rose-900/50 hover:border-rose-500 text-rose-500 hover:bg-rose-500/10 transition-all text-[10px] font-bold uppercase tracking-widest rounded-lg"
             >
               <Trash2 size={14} /> Borrar Todo
             </button>
@@ -537,19 +613,31 @@ export default function ProjectDetail() {
       </div>
 
       {/* Data Grid */}
-      <div className="flex-1 overflow-auto bg-slate-100">
+      <div className="flex-1 overflow-auto bg-slate-950">
         <div className="min-w-full p-6">
           {/* Grid Header */}
           <div 
-            className="grid bg-slate-300/50 sticky top-0 z-10 border-b border-slate-400 rounded-t-lg p-3"
+            className="grid bg-slate-900 sticky top-0 z-10 border-b border-slate-800 rounded-t-xl p-3"
             style={{ gridTemplateColumns: `40px repeat(${dynamicColumns.length}, 1fr) 140px 60px` }}
           >
-            <div className="col-header text-slate-600">#</div>
+            <div className="col-header">#</div>
             {dynamicColumns.map(col => (
-              <div key={col} className="col-header text-slate-600 uppercase tracking-tighter">{col}</div>
+              <div key={col} className="col-header uppercase tracking-tighter flex items-center justify-between group/col">
+                <span className="truncate">{col}</span>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleColumnVisibility(col);
+                  }}
+                  className="opacity-0 group-hover/col:opacity-100 p-1 hover:bg-slate-800 rounded transition-all text-slate-500 hover:text-rose-400 ml-1"
+                  title="Ocultar columna"
+                >
+                  <EyeOff size={12} />
+                </button>
+              </div>
             ))}
-            <div className="col-header text-slate-600">Estado</div>
-            <div className="col-header text-slate-600 text-right">Acc.</div>
+            <div className="col-header">Estado</div>
+            <div className="col-header text-right">Acc.</div>
           </div>
 
           {/* Grid Body */}
@@ -559,16 +647,16 @@ export default function ProjectDetail() {
                 <motion.div 
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className={`grid items-center border-b border-slate-100 p-3 transition-colors cursor-pointer ${
-                    task.incidencia ? 'bg-rose-50 hover:bg-rose-100/50' :
-                    task.status === 'pendiente' ? 'bg-blue-50 hover:bg-blue-100/50' : 
-                    task.status === 'cerrada' ? 'bg-emerald-50 hover:bg-emerald-100/50' : 
-                    'bg-white hover:bg-blue-50/30'
-                  }`}
+                  className={`grid items-center border-b border-slate-800/50 p-3 transition-all cursor-pointer ${
+                    task.incidencia ? 'bg-rose-950/40 border-l-4 border-l-rose-500' :
+                    task.status === 'pendiente' ? 'bg-blue-950/40 border-l-4 border-l-blue-500' : 
+                    task.status === 'cerrada' ? 'bg-emerald-950/40 border-l-4 border-l-emerald-500' : 
+                    'bg-slate-900/50 border-l-4 border-l-transparent'
+                  } hover:brightness-125`}
                   style={{ gridTemplateColumns: `40px repeat(${dynamicColumns.length}, 1fr) 140px 60px` }}
                   onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
                 >
-                  <div className="text-[10px] font-bold text-slate-400">{idx + 1}</div>
+                  <div className="text-[10px] font-bold text-slate-600">{idx + 1}</div>
                   {dynamicColumns.map(col => (
                     <div key={col} className="px-2">
                       <input 
@@ -576,7 +664,7 @@ export default function ProjectDetail() {
                         value={task.dynamic_data[col] || ""}
                         onChange={(e) => updateTask(task.id, { dynamic_data: { [col]: e.target.value } })}
                         onClick={(e) => e.stopPropagation()}
-                        className="w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-1 text-xs text-slate-700"
+                        className="w-full bg-transparent focus:bg-slate-800 focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-1 text-xs text-slate-300 rounded transition-all"
                       />
                     </div>
                   ))}
@@ -586,9 +674,9 @@ export default function ProjectDetail() {
                       onChange={(e) => updateTask(task.id, { status: e.target.value })}
                       onClick={(e) => e.stopPropagation()}
                       className={`w-full text-[10px] font-bold uppercase tracking-wider p-1 rounded border focus:outline-none transition-all ${
-                        task.status === 'pendiente' ? 'bg-blue-100 border-blue-200 text-blue-700' :
-                        task.status === 'cerrada' ? 'bg-emerald-100 border-emerald-200 text-emerald-700' :
-                        'bg-slate-50 border-slate-200 text-slate-500'
+                        task.status === 'pendiente' ? 'bg-blue-900/50 border-blue-800 text-blue-300' :
+                        task.status === 'cerrada' ? 'bg-emerald-900/50 border-emerald-800 text-emerald-300' :
+                        'bg-slate-800 border-slate-700 text-slate-500'
                       }`}
                     >
                       <option value="ninguno">Sin Estado</option>
@@ -596,10 +684,17 @@ export default function ProjectDetail() {
                       <option value="cerrada">Cerrada</option>
                     </select>
                   </div>
-                  <div className="flex justify-end">
+                  <div className="flex flex-col items-center justify-center gap-1">
+                    <input 
+                      type="checkbox"
+                      checked={selectedTaskIds.has(task.id)}
+                      onChange={() => toggleSelectTask(task.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-3 h-3 rounded border-slate-700 bg-slate-800 text-blue-600 focus:ring-blue-500/20 cursor-pointer"
+                    />
                     <button 
                       onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }}
-                      className="p-1 text-slate-300 hover:text-rose-600 transition-colors"
+                      className="p-1 text-slate-600 hover:text-rose-500 transition-colors"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -612,27 +707,27 @@ export default function ProjectDetail() {
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
-                    className="bg-slate-50 border-b border-slate-200 overflow-hidden"
+                    className="bg-slate-900/80 border-b border-slate-800 overflow-hidden"
                   >
                     <div className="py-6 px-8">
                       <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
                         {/* Checkboxes Section */}
                         <div className="space-y-4">
-                          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Estado de Tarea</h4>
+                          <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Estado de Tarea</h4>
                           <div className="grid grid-cols-1 gap-3">
                             {[
                               { id: 'fotos_prl', label: 'Fotos PRL' },
                               { id: 'inventario', label: 'Inventario' },
                               { id: 'incidencia', label: 'Incidencia' }
                             ].map((item) => (
-                              <label key={item.id} className="flex items-center gap-3 p-3 bg-white rounded-lg border border-slate-200 cursor-pointer hover:border-blue-300 transition-all group">
+                              <label key={item.id} className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-xl border border-slate-700 cursor-pointer hover:border-blue-500/50 transition-all group">
                                 <input 
                                   type="checkbox"
                                   checked={!!(task as any)[item.id]}
                                   onChange={(e) => updateTask(task.id, { [item.id]: e.target.checked })}
-                                  className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                                  className="w-4 h-4 text-blue-600 rounded bg-slate-900 border-slate-700 focus:ring-blue-500 focus:ring-offset-slate-900"
                                 />
-                                <span className="text-xs font-medium text-slate-700 group-hover:text-blue-700 transition-colors">
+                                <span className="text-xs font-semibold text-slate-300 group-hover:text-blue-400 transition-colors">
                                   {item.label}
                                 </span>
                               </label>
@@ -642,12 +737,12 @@ export default function ProjectDetail() {
 
                         {/* Comments Section */}
                         <div className="flex flex-col">
-                          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Comentarios Internos</h4>
+                          <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Comentarios Internos</h4>
                           <textarea 
                             value={task.comentarios || ""}
                             onChange={(e) => updateTask(task.id, { comentarios: e.target.value })}
                             placeholder="Escribe aquí cualquier observación..."
-                            className="flex-1 min-h-[120px] p-4 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none shadow-sm"
+                            className="flex-1 min-h-[120px] p-4 bg-slate-800/50 border border-slate-700 rounded-xl text-xs text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none shadow-inner placeholder:text-slate-600"
                           />
                         </div>
                       </div>
@@ -670,23 +765,23 @@ export default function ProjectDetail() {
       </div>
 
       {/* Grid Footer / Stats */}
-      <div className="p-4 border-t border-slate-200 bg-white flex flex-col gap-4">
+      <div className="p-4 border-t border-slate-800 bg-slate-950 flex flex-col gap-4">
         {/* Color Legend */}
-        <div className="flex justify-center items-center gap-6 text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">
+        <div className="flex justify-center items-center gap-6 text-[9px] font-bold uppercase tracking-[0.2em] text-slate-500">
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-rose-100 border border-rose-200 rounded-sm"></div>
+            <div className="w-3 h-3 bg-rose-900/50 border border-rose-500/50 rounded-sm"></div>
             <span>Incidencia</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-blue-100 border border-blue-200 rounded-sm"></div>
+            <div className="w-3 h-3 bg-blue-900/50 border border-blue-500/50 rounded-sm"></div>
             <span>Pendiente de valorar</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-emerald-100 border border-emerald-200 rounded-sm"></div>
+            <div className="w-3 h-3 bg-emerald-900/50 border border-emerald-500/50 rounded-sm"></div>
             <span>Cerrada</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-white border border-slate-200 rounded-sm"></div>
+            <div className="w-3 h-3 bg-slate-800 border border-slate-700 rounded-sm"></div>
             <span>Sin Estado</span>
           </div>
         </div>

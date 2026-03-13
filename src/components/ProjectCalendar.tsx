@@ -36,14 +36,14 @@ export default function ProjectCalendar() {
   };
 
   return (
-    <div className="p-8 max-w-5xl mx-auto bg-slate-100 min-h-screen">
+    <div className="p-8 max-w-5xl mx-auto bg-slate-950 min-h-screen">
       <div className="flex items-center gap-4 mb-8">
-        <Link to="/" className="p-2 transition-colors rounded-md hover:bg-white text-slate-400">
+        <Link to="/" className="p-2 transition-colors rounded-md hover:bg-slate-800 text-slate-500">
           <ArrowLeft size={20} />
         </Link>
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">{project?.name}</h1>
-          <p className="text-sm text-slate-500">Selecciona el periodo de tiempo para gestionar las tareas</p>
+          <h1 className="text-3xl font-bold text-white tracking-tight">{project?.name}</h1>
+          <p className="text-sm text-slate-400">Selecciona el periodo de tiempo para gestionar las tareas</p>
         </div>
       </div>
 
@@ -54,11 +54,11 @@ export default function ProjectCalendar() {
               onClick={() => setSelectedMonth(selectedMonth === index + 1 ? null : index + 1)}
               className={`p-6 rounded-xl border transition-all flex flex-col items-center justify-center gap-3 group ${
                 selectedMonth === index + 1 
-                  ? "bg-blue-700 border-blue-700 text-white shadow-lg scale-105" 
-                  : "bg-white border-slate-200 text-slate-700 hover:border-blue-400 hover:shadow-md"
+                  ? "bg-blue-600 border-blue-600 text-white shadow-lg scale-105" 
+                  : "bg-slate-900 border-slate-800 text-slate-300 hover:border-blue-500/50 hover:shadow-2xl"
               }`}
             >
-              <Calendar size={24} className={selectedMonth === index + 1 ? "text-white" : "text-blue-500 group-hover:scale-110 transition-transform"} />
+              <Calendar size={24} className={selectedMonth === index + 1 ? "text-white" : "text-blue-400 group-hover:scale-110 transition-transform"} />
               <span className="font-bold uppercase tracking-widest text-xs">{month}</span>
             </button>
 
@@ -74,11 +74,11 @@ export default function ProjectCalendar() {
                     <button
                       key={week.id}
                       onClick={() => navigate(`/project/${id}/tasks?month=${index + 1}&week=${week.id}`)}
-                      className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg text-[10px] font-bold uppercase tracking-widest text-slate-600 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition-all group"
+                      className="flex items-center justify-between p-3 bg-slate-900 border border-slate-800 rounded-lg text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:bg-slate-800 hover:border-blue-500/50 hover:text-blue-400 transition-all group"
                     >
                       <div className="flex flex-col items-start gap-0.5">
                         <span>{week.name}</span>
-                        <span className="text-[9px] text-slate-400 font-mono lowercase tracking-normal">({getWeekRange(index, week.id)})</span>
+                        <span className="text-[9px] text-slate-500 font-mono lowercase tracking-normal">({getWeekRange(index, week.id)})</span>
                       </div>
                       <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
                     </button>

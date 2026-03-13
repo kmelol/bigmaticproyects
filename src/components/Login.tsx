@@ -37,31 +37,31 @@ export default function Login({ onLogin }: LoginProps) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+    <div className="min-h-screen flex items-center justify-center bg-slate-950 p-6">
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-md w-full bg-white border border-slate-200 rounded-2xl p-8 shadow-xl"
+        className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl"
       >
         <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 bg-blue-700 text-white rounded-2xl flex items-center justify-center mb-4 shadow-lg rotate-3">
+          <div className="w-16 h-16 bg-blue-600 text-white rounded-2xl flex items-center justify-center mb-4 shadow-lg rotate-3">
             <Lock size={32} />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Bigmatic ProjectFlow</h1>
-          <p className="text-slate-500 text-sm mt-1">Identifícate para continuar</p>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Bigmatic ProjectFlow</h1>
+          <p className="text-slate-500 text-sm mt-1 font-medium">Identifícate para continuar</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label className="block text-[10px] uppercase tracking-widest font-bold text-slate-500 mb-2">Usuario</label>
             <div className="relative">
-              <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" />
               <input 
                 type="text"
                 required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 pl-10 pr-4 py-3 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                className="w-full bg-slate-800 border border-slate-700 pl-10 pr-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-700"
                 placeholder="Nombre de usuario"
               />
             </div>
@@ -70,13 +70,13 @@ export default function Login({ onLogin }: LoginProps) {
           <div>
             <label className="block text-[10px] uppercase tracking-widest font-bold text-slate-500 mb-2">Contraseña</label>
             <div className="relative">
-              <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" />
               <input 
                 type="password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 pl-10 pr-4 py-3 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                className="w-full bg-slate-800 border border-slate-700 pl-10 pr-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-700"
                 placeholder="••••••••"
               />
             </div>
@@ -94,14 +94,14 @@ export default function Login({ onLogin }: LoginProps) {
 
           <button 
             type="submit"
-            className="w-full bg-blue-700 hover:bg-blue-800 text-white py-4 rounded-xl font-bold uppercase tracking-widest text-xs transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2"
+            className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold uppercase tracking-widest text-xs transition-all shadow-lg shadow-blue-900/20 active:scale-[0.98] flex items-center justify-center gap-2"
           >
             <LogIn size={16} /> Acceder al Sistema
           </button>
         </form>
 
-        <div className="mt-8 pt-6 border-t border-slate-100 text-center">
-          <p className="text-[10px] text-slate-400 uppercase tracking-widest">
+        <div className="mt-8 pt-6 border-t border-slate-800 text-center">
+          <p className="text-[10px] text-slate-600 uppercase tracking-widest">
             © 2026 Bigmatic ProjectFlow v2.0
           </p>
         </div>
