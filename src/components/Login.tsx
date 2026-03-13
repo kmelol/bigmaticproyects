@@ -11,19 +11,28 @@ export default function Login({ onLogin }: LoginProps) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const validUsers: Record<string, string> = {
-      "Carlos": "Carlos123",
-      "Sara": "Sara123"
-    };
+    setError("");
+    
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+      });
 
-    if (validUsers[username] === password) {
-      localStorage.setItem("isLoggedIn", "true");
-      localStorage.setItem("username", username);
-      onLogin();
-    } else {
-      setError("Credenciales incorrectas");
+      if (res.ok) {
+        const data = await res.json();
+        localStorage.setItem("isLoggedIn", "true");
+        localStorage.setItem("username", data.username);
+        onLogin();
+      } else {
+        const data = await res.json();
+        setError(data.error || "Credenciales incorrectas");
+      }
+    } catch (err) {
+      setError("Error de conexión con el servidor");
     }
   };
 

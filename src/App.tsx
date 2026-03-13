@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Link, Navigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import ProjectList from "./components/ProjectList";
+import ProjectCalendar from "./components/ProjectCalendar";
 import ProjectDetail from "./components/ProjectDetail";
 import Login from "./components/Login";
 import { Layout, LogOut } from "lucide-react";
@@ -68,10 +69,11 @@ export default function App() {
           </div>
         </header>
 
-        <main className="flex-1">
+        <main className="flex-1 overflow-hidden">
           <Routes>
             <Route path="/" element={<ProjectList />} />
-            <Route path="/project/:id" element={<ProjectDetail />} />
+            <Route path="/project/:id" element={<ProjectCalendar />} />
+            <Route path="/project/:id/tasks" element={<ProjectDetail />} />
           </Routes>
         </main>
         

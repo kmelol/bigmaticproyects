@@ -10,23 +10,13 @@ export interface Project {
 export interface Task {
   id: number;
   project_id: number;
-  title: string;
-  assignee: string;
-  category: string;
-  address: string;
-  province: string;
-  status: 'Pendiente' | 'Cerrado' | 'Incidencia';
-  priority: 'Pendiente' | 'Enviado';
-  prl: 'Pendiente' | 'Enviado';
-  start_date: string;
-  end_date: string;
-  progress: number;
-  puestos_maquetados: number;
-  traslados_internos: number;
-  traslados_externos: number;
-  equipos_embalados: number;
-  comments: string;
-  cgp_2: string;
-  visita_fallida: number;
-  segunda_visita: number;
+  month: number;
+  week: number;
+  dynamic_data: Record<string, any>;
+  fotos_prl: boolean;
+  inventario: boolean;
+  incidencia: boolean;
+  comentarios: string;
+  status: 'pendiente' | 'cerrada' | 'ninguno';
+  created_at?: string;
 }

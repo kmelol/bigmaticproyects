@@ -10,8 +10,12 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const SUPABASE_URL = "https://xduqxyazymqvxdeqtazy.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhkdXF4eWF6eW1xdnhkZXF0YXp5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5NjAwODksImV4cCI6MjA4ODUzNjA4OX0.lE8gd0whhwPhEmXuBSnxZeuKXGbg9oe1-nU1LsEAYuo";
+const SUPABASE_URL = process.env.SUPABASE_URL || "https://xduqxyazymqvxdeqtazy.supabase.co";
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhkdXF4eWF6eW1xdnhkZXF0YXp5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5NjAwODksImV4cCI6MjA4ODUzNjA4OX0.lE8gd0whhwPhEmXuBSnxZeuKXGbg9oe1-nU1LsEAYuo";
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  console.error("Missing Supabase configuration. Please check environment variables.");
+}
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -26,11 +30,35 @@ async function startServer() {
     try {
       // Simple health check using Supabase client
       const { data, error } = await supabase.from('projects').select('count', { count: 'exact', head: true });
-      if (error) throw error;
+      if (error) {
+        console.error("Supabase connection error in health check:", error);
+        return res.status(500).json({ status: "error", message: `Supabase error: ${error.message}`, code: error.code });
+      }
       res.json({ status: "ok", message: "Connected to Supabase via API" });
     } catch (error: any) {
       console.error("Health check failed:", error);
       res.status(500).json({ status: "error", message: error.message });
+    }
+  });
+
+  // Auth API
+  app.post("/api/login", async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('username', username)
+        .eq('password', password)
+        .single();
+
+      if (error || !data) {
+        return res.status(401).json({ error: "Credenciales incorrectas" });
+      }
+
+      res.json({ success: true, username: data.username });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 
@@ -110,11 +138,17 @@ async function startServer() {
   app.get("/api/projects/:projectId/tasks", async (req, res) => {
     try {
       const { projectId } = req.params;
-      const { data, error } = await supabase
+      const { month, week } = req.query;
+      
+      let query = supabase
         .from('tasks')
         .select('*')
-        .eq('project_id', projectId)
-        .order('id', { ascending: true });
+        .eq('project_id', projectId);
+      
+      if (month) query = query.eq('month', month);
+      if (week) query = query.eq('week', week);
+
+      const { data, error } = await query.order('id', { ascending: true });
 
       if (error) throw error;
       res.json(data);
@@ -126,7 +160,9 @@ async function startServer() {
   app.post("/api/projects/:projectId/tasks", async (req, res) => {
     try {
       const { projectId } = req.params;
-      const taskData = { ...req.body, project_id: projectId };
+      const { month, week, dynamic_data } = req.body;
+      const title = dynamic_data?.['Título'] || dynamic_data?.['Title'] || 'Nueva Tarea';
+      const taskData = { project_id: projectId, month, week, dynamic_data, title };
       
       const { data, error } = await supabase
         .from('tasks')
@@ -171,15 +207,70 @@ async function startServer() {
     }
   });
 
+  app.post("/api/tasks/bulk-delete", async (req, res) => {
+    try {
+      const { ids } = req.body;
+      const { error } = await supabase
+        .from('tasks')
+        .delete()
+        .in('id', ids);
+
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/projects/:projectId/tasks", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const { error } = await supabase
+        .from('tasks')
+        .delete()
+        .eq('project_id', projectId);
+
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Bulk Import Tasks
   app.post("/api/projects/:projectId/tasks/bulk", async (req, res) => {
     try {
       const { projectId } = req.params;
-      const tasks = req.body.map((t: any) => ({ ...t, project_id: projectId }));
+      const { month: defaultMonth, week: defaultWeek, tasks: taskList } = req.body;
+      const tasks = taskList.map((t: any) => {
+        const dynamicData = t.dynamic_data || t;
+        // Try to find a title-like field for the legacy 'title' column
+        const title = dynamicData['Título'] || dynamicData['Title'] || dynamicData['Nombre'] || dynamicData['Tarea'] || 'Tarea Importada';
+        
+        // Extract INC specifically for deduplication
+        const inc = dynamicData['INC'] || dynamicData['Incidencia'] || dynamicData['Aviso'] || dynamicData['Número'] || title;
+
+        return { 
+          project_id: projectId,
+          month: t.month || defaultMonth,
+          week: t.week || defaultWeek,
+          title: title,
+          inc: String(inc),
+          dynamic_data: dynamicData 
+        };
+      });
+
+      // Deduplicate tasks based on project_id and inc
+      const uniqueTasksMap = new Map();
+      tasks.forEach(task => {
+        const key = `${task.project_id}-${task.inc}`;
+        uniqueTasksMap.set(key, task);
+      });
+      const uniqueTasks = Array.from(uniqueTasksMap.values());
       
       const { data, error } = await supabase
         .from('tasks')
-        .insert(tasks);
+        .upsert(uniqueTasks, { onConflict: 'project_id, inc' });
 
       if (error) throw error;
       res.json({ success: true, count: tasks.length });

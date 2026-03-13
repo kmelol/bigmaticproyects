@@ -30,7 +30,7 @@ body {
 
 .data-row {
   display: grid;
-  grid-template-columns: 35px 160px 60px 140px 200px 120px 120px 110px 110px 240px 160px 70px 70px 1fr 40px;
+  grid-template-columns: 35px 30px 160px 80px 60px 140px 200px 120px 140px 110px 110px 120px 120px 80px 35px;
   column-gap: 12px;
   padding: 0.5rem 1rem;
   border-bottom: 1px solid rgba(20, 20, 20, 0.1);
