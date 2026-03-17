@@ -13,10 +13,15 @@ export default function App() {
 
   useEffect(() => {
     const status = localStorage.getItem("isLoggedIn") === "true";
-    const storedUser = localStorage.getItem("username") || "";
     setIsLoggedIn(status);
-    setUser(storedUser);
   }, []);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      const storedUser = localStorage.getItem("username") || "";
+      setUser(storedUser);
+    }
+  }, [isLoggedIn]);
 
   const handleLogout = () => {
     localStorage.removeItem("isLoggedIn");
@@ -56,7 +61,9 @@ export default function App() {
 
           <div className="flex items-center gap-4">
             <div className="flex flex-col items-end">
-              <span className="text-[10px] font-bold text-white uppercase tracking-widest">{user === 'Carlos' ? 'Carlos Sarmiento' : user}</span>
+              <span className="text-[10px] font-bold text-white uppercase tracking-widest">
+                {user === 'Carlos' || user === 'cstinformaticas' ? 'Carlos Sarmiento' : user}
+              </span>
               <span className="text-[9px] text-slate-500 font-medium">Administrador</span>
             </div>
             <button 
@@ -78,7 +85,7 @@ export default function App() {
         </main>
         
         <footer className="border-t border-slate-800 p-6 text-[10px] uppercase tracking-widest text-slate-600 flex justify-between bg-slate-900">
-          <span className="font-semibold">Bigmatic Projectflow por {user === 'Carlos' ? 'Carlos Sarmiento' : user} / Tecnico informatico</span>
+          <span className="font-semibold">Bigmatic Projectflow por {user === 'Carlos' || user === 'cstinformaticas' ? 'Carlos Sarmiento' : user} / Tecnico informatico</span>
           <span>Sistemas de Gestión v1.1.0</span>
         </footer>
       </div>

@@ -1,18 +1,16 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
 import { 
-  ArrowLeft, Plus, Download, Upload, Trash2, 
+  ArrowLeft, Plus, Download, Trash2, 
   ChevronDown, Search, Filter, MoreHorizontal,
   CheckCircle2, Circle, Clock, AlertCircle,
-  Image as ImageIcon, X, Check, Settings, Eye, EyeOff
+  X, Check, Settings, Eye, EyeOff
 } from "lucide-react";
 import { Project, Task } from "../types";
-import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { motion, AnimatePresence } from "motion/react";
 import ConfirmDialog from "./ConfirmDialog";
-import { GoogleGenAI, Type } from "@google/genai";
-import { getWeekRange, getMonthAndWeekFromDate } from "../utils/dateUtils";
+import { getWeekRange, getMonthAndWeekFromDate, parseDate, findDateAndRelocate } from "../utils/dateUtils";
 
 export default function ProjectDetail() {
   const { id } = useParams();
@@ -27,14 +25,11 @@ export default function ProjectDetail() {
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<number>>(new Set());
   const [confirmBulkDelete, setConfirmBulkDelete] = useState<{ isOpen: boolean; type: 'selected' | 'all' }>({ isOpen: false, type: 'selected' });
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const screenshotInputRef = useRef<HTMLInputElement>(null);
 
+  const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
+  const [pasteInput, setPasteInput] = useState("");
   const [importing, setImporting] = useState(false);
-  const [showReviewModal, setShowReviewModal] = useState(false);
-  const [pendingTasks, setPendingTasks] = useState<any[]>([]);
-  const [availableColumns, setAvailableColumns] = useState<string[]>([]);
-  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [showColumnToggle, setShowColumnToggle] = useState(false);
 
@@ -121,9 +116,13 @@ export default function ProjectDetail() {
       month,
       week,
       dynamic_data: {
-        "Título": "Nueva Tarea",
-        "Estado": "Pendiente"
-      }
+        "Ticket cliente": "T-NEW",
+        "Sitio": "",
+        "Población": "",
+        "Provincia": "",
+        "Fecha SLA": ""
+      },
+      status: "abierta"
     };
     const res = await fetch(`/api/projects/${id}/tasks`, {
       method: "POST",
@@ -137,11 +136,33 @@ export default function ProjectDetail() {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
     
+    const allowedFields = [
+      'Ticket cliente', 'Fecha SLA', 'Sitio', 'Población', 'Provincia'
+    ];
+
+    let cleanDynamicData = task.dynamic_data;
+    if (updates.dynamic_data) {
+      cleanDynamicData = { ...task.dynamic_data };
+      Object.keys(updates.dynamic_data).forEach(key => {
+        if (allowedFields.includes(key)) {
+          cleanDynamicData[key] = updates.dynamic_data[key];
+        }
+      });
+    }
+
     const updatedTask = { 
       ...task, 
       ...updates,
-      dynamic_data: updates.dynamic_data ? { ...task.dynamic_data, ...updates.dynamic_data } : task.dynamic_data
+      dynamic_data: cleanDynamicData
     };
+
+    // Auto-relocation logic based on date detection in the FULL dynamic_data
+    const relocation = findDateAndRelocate(updatedTask.dynamic_data);
+    if (relocation && (relocation.month !== task.month || relocation.week !== task.week)) {
+      updatedTask.month = relocation.month;
+      updatedTask.week = relocation.week;
+      console.log(`Tarea reubicada a Mes ${relocation.month}, Semana ${relocation.week}`);
+    }
 
     // Optimistic update
     setTasks(prev => prev.map(t => t.id === taskId ? updatedTask : t));
@@ -169,248 +190,393 @@ export default function ProjectDetail() {
     window.location.href = "/";
   };
 
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handlePasteImport = async () => {
+    if (!pasteInput.trim()) return;
+    if (!id) {
+      alert("Error: No se ha podido identificar el proyecto.");
+      return;
+    }
 
-    const reader = new FileReader();
-    const extension = file.name.split('.').pop()?.toLowerCase();
+    try {
+      setImporting(true);
+      
+      // Normalización inicial
+      const normalizedInput = pasteInput.trim().replace(/\r\n/g, '\n');
+      const lines = normalizedInput.split('\n').map(l => l.trim()).filter(l => l !== "");
+      
+      if (lines.length === 0) return;
 
-    if (extension === 'csv') {
-      Papa.parse(file, {
-        header: true,
-        complete: (results) => {
-          processImportedData(results.data);
-        }
-      });
-    } else if (extension === 'xlsx' || extension === 'xls') {
-      reader.onload = (evt) => {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
-        const wsname = wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws);
-        processImportedData(data);
+      // Mapeo de cabeceras conocidas
+      const knownHeaders = {
+        "Ticket cliente": ["ticket", "id", "incidencia", "nº", "numero", "ref", "inc"],
+        "Fecha SLA": ["fecha", "sla", "vencimiento", "dia", "date", "vence", "vto"],
+        "Sitio": ["sitio", "centro", "tienda", "local", "site", "nombre", "ubicacion", "ubicación"],
+        "Población": ["población", "poblacion", "ciudad", "municipio", "town", "city", "pueblo"],
+        "Provincia": ["provincia", "region", "province", "prov"]
       };
-      reader.readAsBinaryString(file);
-    }
-  };
 
-  const processImportedData = async (data: any[]) => {
-    try {
-      setImporting(true);
-      
-      const processedTasks = data.map((t: any) => {
-        let taskMonth = month;
-        let taskWeek = week;
-        
-        // Buscar campo de fecha para reubicación
-        const dateKey = Object.keys(t).find(key => 
-          key.toLowerCase().includes('fecha') || 
-          key.toLowerCase().includes('día') || 
-          key.toLowerCase().includes('date')
+      const PROVINCIAS = [
+        "Álava", "Albacete", "Alicante", "Almería", "Asturias", "Ávila", "Badajoz", "Barcelona", "Burgos", "Cáceres",
+        "Cádiz", "Cantabria", "Castellón", "Ciudad Real", "Córdoba", "Cuenca", "Gerona", "Granada", "Guadalajara",
+        "Guipúzcoa", "Huelva", "Huesca", "Islas Baleares", "Jaén", "La Coruña", "La Rioja", "Las Palmas", "León",
+        "Lérida", "Lugo", "Madrid", "Málaga", "Murcia", "Navarra", "Orense", "Palencia", "Pontevedra", "Salamanca",
+        "Santa Cruz de Tenerife", "Segovia", "Sevilla", "Soria", "Tarragona", "Teruel", "Toledo", "Valencia",
+        "Valladolid", "Vizcaya", "Zamora", "Zaragoza", "Ceuta", "Melilla"
+      ].map(p => p.toLowerCase());
+
+      let colMapping: Record<string, number> = {};
+      let startLine = 0;
+
+      // 1. Intentar detectar cabeceras en la primera línea
+      const firstLineCols = lines[0].split(/\t| {2,}/).map(s => s.trim().toLowerCase());
+      let headersFound = 0;
+
+      Object.entries(knownHeaders).forEach(([field, variations]) => {
+        const idx = firstLineCols.findIndex(col => 
+          variations.some(v => col.includes(v))
         );
+        if (idx !== -1) {
+          colMapping[field] = idx;
+          headersFound++;
+        }
+      });
+
+      // 2. Si no hay suficientes cabeceras, analizar contenido de las primeras líneas
+      if (headersFound < 3) {
+        const sampleRows = lines.slice(0, 5).map(line => line.split(/\t| {2,}/).map(s => s.trim()));
+        const numCols = sampleRows[0].length;
+        const scores: Record<string, number[]> = {
+          "Ticket cliente": Array(numCols).fill(0),
+          "Fecha SLA": Array(numCols).fill(0),
+          "Provincia": Array(numCols).fill(0),
+          "Sitio": Array(numCols).fill(0),
+          "Población": Array(numCols).fill(0)
+        };
+
+        sampleRows.forEach(cols => {
+          cols.forEach((val, idx) => {
+            if (!val) return;
+            const lowerVal = val.toLowerCase();
+            
+            // Score Ticket
+            if (/^(INC|T-|[A-Z]{2,}\d+)/i.test(val)) scores["Ticket cliente"][idx] += 5;
+            else if (val.length > 4 && /^\d+$/.test(val)) scores["Ticket cliente"][idx] += 2;
+            
+            // Score Fecha
+            if (parseDate(val) !== null) scores["Fecha SLA"][idx] += 5;
+            
+            // Score Provincia
+            if (PROVINCIAS.some(p => lowerVal === p || lowerVal.includes(p))) scores["Provincia"][idx] += 5;
+
+            // Score Sitio (Heurística: palabras comunes en centros)
+            if (/(tienda|centro|local|site|hospital|oficina|nave|poligono|polígono|cc|c\.c\.)/i.test(val)) scores["Sitio"][idx] += 2;
+          });
+        });
+
+        // Asignar columnas por puntuación más alta
+        const assignedCols = new Set<number>();
+        const fields = ["Fecha SLA", "Ticket cliente", "Provincia", "Sitio", "Población"];
         
-        if (dateKey && t[dateKey]) {
-          const date = new Date(t[dateKey]);
-          if (!isNaN(date.getTime())) {
-            const relocation = getMonthAndWeekFromDate(date);
-            if (relocation) {
-              taskMonth = relocation.month;
-              taskWeek = relocation.week;
+        fields.forEach(field => {
+          let bestIdx = -1;
+          let maxScore = -1;
+          scores[field].forEach((score, idx) => {
+            if (!assignedCols.has(idx) && score > maxScore) {
+              maxScore = score;
+              bestIdx = idx;
             }
+          });
+          if (bestIdx !== -1 && maxScore > 0) {
+            colMapping[field] = bestIdx;
+            assignedCols.add(bestIdx);
           }
-        }
+        });
+
+        // Rellenar huecos por orden lógico si faltan
+        const remainingFields = fields.filter(f => colMapping[f] === undefined);
+        const remainingCols = Array.from({length: numCols}, (_, i) => i).filter(i => !assignedCols.has(i));
         
-        return {
-          dynamic_data: t,
-          month: taskMonth,
-          week: taskWeek
-        };
-      });
-
-      // Get all unique columns from the imported data
-      const allCols = new Set<string>();
-      data.forEach(t => {
-        Object.keys(t).forEach(k => allCols.add(k));
-      });
-      
-      const columns = Array.from(allCols);
-      setAvailableColumns(columns);
-      setSelectedColumns(columns); // Default all selected
-      setPendingTasks(processedTasks);
-      setShowReviewModal(true);
-    } catch (error: any) {
-      console.error("Import error:", error);
-      alert("Error en la importación: " + error.message);
-    } finally {
-      setImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
-
-  const handleScreenshotImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      setImporting(true);
-      
-      const reader = new FileReader();
-      const base64Promise = new Promise<string>((resolve) => {
-        reader.onload = () => {
-          const base64 = (reader.result as string).split(',')[1];
-          resolve(base64);
-        };
-      });
-      reader.readAsDataURL(file);
-      const base64Data = await base64Promise;
-
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [
-          {
-            parts: [
-              { text: "Analiza esta captura de pantalla de una tabla de tareas. REGLAS CRÍTICAS:\n1. Identifica todas las columnas y extrae los datos.\n2. Busca cualquier columna que parezca una FECHA (ej: 'Fecha', 'Día', '01/03').\n3. El resultado debe ser un array JSON de objetos donde las llaves sean los nombres de las columnas.\n4. Si encuentras una fecha, inclúyela en un campo llamado 'fecha_detectada' en formato YYYY-MM-DD.\nDevuelve SOLO el JSON, sin markdown." },
-              { inlineData: { mimeType: file.type, data: base64Data } }
-            ]
+        remainingFields.forEach(field => {
+          if (remainingCols.length > 0) {
+            colMapping[field] = remainingCols.shift()!;
           }
-        ],
-        config: {
-          responseMimeType: "application/json"
-        }
-      });
+        });
 
-      const rawTasks = JSON.parse(response.text);
-      
-      // Filtrar campos vacíos y columnas ignoradas (Motivo, Estado, Proyecto)
-      const ignoredKeys = ['motivo', 'estado', 'proyecto'];
-      const extractedTasks = (Array.isArray(rawTasks) ? rawTasks : []).map((task: any) => {
-        const filteredTask: any = {};
+        // Comprobar si la primera línea es un header (contiene palabras clave de cabecera)
+        const firstLineIsHeader = firstLineCols.some(col => 
+          Object.values(knownHeaders).flat().some(v => col === v || col.includes(v))
+        );
+        if (firstLineIsHeader) startLine = 1;
+
+      } else {
+        startLine = 1;
+      }
+
+      // 1. Obtener todos los tickets existentes en el proyecto para evitar duplicados
+      let existingTickets = new Set<string>();
+      try {
+        const res = await fetch(`/api/projects/${id}/tasks`);
+        const allTasks = await res.json();
+        if (Array.isArray(allTasks)) {
+          allTasks.forEach((t: any) => {
+            if (t.dynamic_data && t.dynamic_data["Ticket cliente"]) {
+              existingTickets.add(t.dynamic_data["Ticket cliente"].toString().trim().toUpperCase());
+            }
+          });
+        }
+      } catch (error) {
+        console.error("Error al verificar duplicados:", error);
+      }
+
+      const tasksToImport: any[] = [];
+      let currentTask: any = null;
+      const ticketsInBatch = new Set<string>();
+      let discardedCount = 0;
+
+      const IGNORE_REGEX = [
+        /^(abierta|cerrada|incidencia|normal|baja|media|alta|asignada|en curso|pendiente|validar|validación|resuelta|reabierta|incidencia|usuario|operativo|máquina|maquina|equipo|avería|averia|fallo|error|problema)$/i,
+        /^[A-Z]\d+(_\d+)?$/i, // IDs como I2026_042903 o T12345
+        /^\d{5,}$/,           // Números largos
+        /^[A-Z]{1,2}$/i,      // Códigos de 1-2 letras solos
+        /^TF\s+/i             // Ignorar nombres que empiecen por TF (según petición usuario)
+      ];
+
+      const normalize = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+      const normalizedProvincias = PROVINCIAS.map(p => normalize(p));
+
+      // Función para limpiar valores (quitar comillas, espacios extra, etc)
+      const cleanValue = (val: string) => {
+        if (!val) return "";
+        return val.trim().replace(/^["']|["']$/g, '').trim();
+      };
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        // Split por tabuladores o múltiples espacios
+        const cols = line.split(/\t| {2,}/).map(s => cleanValue(s)).filter(s => s !== "");
+        
+        // Detectar si esta línea inicia una nueva tarea (contiene un Ticket INC...)
+        const ticketIdx = cols.findIndex(c => /^(INC|T-|[A-Z]{2,}\d+)/i.test(c));
+
+        if (ticketIdx !== -1) {
+          const ticketValue = cols[ticketIdx];
+          const ticketUpper = ticketValue.toUpperCase();
+
+          // Si el ticket ya existe en el proyecto o en este lote, ignoramos este bloque
+          if (existingTickets.has(ticketUpper) || ticketsInBatch.has(ticketUpper)) {
+            currentTask = null; // Reset para ignorar líneas siguientes de este ticket
+            discardedCount++;
+            continue;
+          }
+
+          if (currentTask) tasksToImport.push(currentTask);
+
+          ticketsInBatch.add(ticketUpper);
+          currentTask = {
+            dynamic_data: {
+              "Ticket cliente": ticketValue,
+              "Fecha SLA": "",
+              "Sitio": "",
+              "Población": "",
+              "Provincia": ""
+            }
+          };
+
+          // Procesar el resto de la línea del ticket para buscar la fecha SLA (la más lejana)
+          cols.forEach((val, idx) => {
+            if (idx === ticketIdx) return;
+            const date = parseDate(val);
+            if (date) {
+              const currentSLA = currentTask.dynamic_data["Fecha SLA"];
+              if (!currentSLA) {
+                currentTask.dynamic_data["Fecha SLA"] = val;
+              } else {
+                const existingDate = parseDate(currentSLA);
+                if (existingDate && date > existingDate) {
+                  currentTask.dynamic_data["Fecha SLA"] = val;
+                }
+              }
+            }
+          });
+        } else if (currentTask) {
+          // Rellenar campos en líneas subsiguientes
+          cols.forEach(val => {
+            const cleanVal = cleanValue(val);
+            if (!cleanVal) return;
+
+            // Filtro agresivo para descripciones: 
+            // Si tiene muchas palabras y no tiene números ni paréntesis, es una descripción
+            const words = cleanVal.split(/\s+/);
+            if (words.length > 4 && !/\d/.test(cleanVal) && !cleanVal.includes('(')) return;
+            
+            // Filtro por palabras clave prohibidas
+            if (IGNORE_REGEX.some(re => re.test(cleanVal))) return;
+            // También comprobar si alguna palabra individual está en la lista de ignorados
+            if (words.some(w => IGNORE_REGEX.some(re => re.test(w) && re.source.startsWith('^(')))) return;
+
+            const norm = normalize(cleanVal);
+            const date = parseDate(cleanVal);
+
+            // 1. Provincia / Población (Detección geográfica)
+            if (normalizedProvincias.includes(norm)) {
+              if (!currentTask.dynamic_data["Provincia"]) {
+                currentTask.dynamic_data["Provincia"] = cleanVal;
+              } else if (!currentTask.dynamic_data["Población"]) {
+                currentTask.dynamic_data["Población"] = cleanVal;
+              }
+              return;
+            }
+
+            // 2. Fecha SLA (Siempre preferimos la fecha más tardía del bloque)
+            if (date) {
+              const currentSLA = currentTask.dynamic_data["Fecha SLA"];
+              if (!currentSLA) {
+                currentTask.dynamic_data["Fecha SLA"] = val;
+              } else {
+                const existingDate = parseDate(currentSLA);
+                if (existingDate && date > existingDate) {
+                  currentTask.dynamic_data["Fecha SLA"] = val;
+                }
+              }
+              return;
+            }
+
+            // 3. Sitio (Si tiene paréntesis es la dirección, que es lo que el usuario quiere priorizar)
+            if (cleanVal.includes('(') || cleanVal.includes(')')) {
+              currentTask.dynamic_data["Sitio"] = cleanVal;
+              return;
+            }
+
+            // 4. Asignación por descarte (Sitio -> Población)
+            if (!currentTask.dynamic_data["Sitio"]) {
+              currentTask.dynamic_data["Sitio"] = cleanVal;
+            } else if (!currentTask.dynamic_data["Población"]) {
+              currentTask.dynamic_data["Población"] = cleanVal;
+            }
+          });
+        }
+      }
+
+      if (currentTask) tasksToImport.push(currentTask);
+
+      const finalTasks = tasksToImport.map(t => {
         let taskMonth = month;
         let taskWeek = week;
-
-        // Procesar fecha detectada para reubicación
-        if (task.fecha_detectada) {
-          const date = new Date(task.fecha_detectada);
-          const relocation = getMonthAndWeekFromDate(date);
-          if (relocation) {
-            taskMonth = relocation.month;
-            taskWeek = relocation.week;
-          }
+        const relocation = findDateAndRelocate(t.dynamic_data);
+        if (relocation) {
+          taskMonth = relocation.month;
+          taskWeek = relocation.week;
         }
-
-        Object.keys(task).forEach(key => {
-          const normalizedKey = key.toLowerCase().trim();
-          if (normalizedKey === 'fecha_detectada') return;
-
-          const value = task[key];
-          const isEmpty = value === null || value === undefined || String(value).trim() === '';
-          
-          if (!isEmpty && !ignoredKeys.includes(normalizedKey)) {
-            filteredTask[key] = value;
-          }
-        });
-
-        return {
-          dynamic_data: filteredTask,
-          month: taskMonth,
-          week: taskWeek
-        };
-      }).filter(t => Object.keys(t.dynamic_data).length > 0);
-
-      // Get all unique columns from the extracted tasks
-      const allCols = new Set<string>();
-      extractedTasks.forEach(t => {
-        Object.keys(t.dynamic_data).forEach(k => allCols.add(k));
+        return { ...t, status: "abierta", month: taskMonth, week: taskWeek };
       });
-      
-      const columns = Array.from(allCols);
-      setAvailableColumns(columns);
-      setSelectedColumns(columns);
-      setPendingTasks(extractedTasks);
-      setShowReviewModal(true);
-    } catch (error: any) {
-      console.error("Screenshot import error:", error);
-      alert("Error en la importación desde captura: " + error.message);
-    } finally {
-      setImporting(false);
-      if (screenshotInputRef.current) screenshotInputRef.current.value = "";
-    }
-  };
 
-  const confirmBulkImport = async () => {
-    try {
-      setImporting(true);
-      
-      // Filter dynamic_data based on selected columns
-      const finalTasks = pendingTasks.map(t => {
-        const filteredData: any = {};
-        selectedColumns.forEach(col => {
-          if (t.dynamic_data[col] !== undefined) {
-            filteredData[col] = t.dynamic_data[col];
-          }
-        });
-        return {
-          ...t,
-          dynamic_data: filteredData
-        };
-      }).filter(t => Object.keys(t.dynamic_data).length > 0);
+      if (finalTasks.length === 0) {
+        if (discardedCount > 0) {
+          alert(`No se han añadido nuevas tareas. Se detectaron ${discardedCount} tareas que ya existían en el proyecto.`);
+        } else {
+          alert("No se han detectado tareas válidas. Asegúrate de incluir el número de Ticket (INC...).");
+        }
+        setIsPasteModalOpen(false);
+        setPasteInput("");
+        setImporting(false);
+        return;
+      }
+
+      const summary: Record<string, number> = {};
+      finalTasks.forEach(t => {
+        const key = `Mes ${t.month}, Sem ${t.week}`;
+        summary[key] = (summary[key] || 0) + 1;
+      });
 
       const res = await fetch(`/api/projects/${id}/tasks/bulk`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          month,
-          week,
-          tasks: finalTasks
-        }),
+        body: JSON.stringify({ month, week, tasks: finalTasks }),
       });
-      
+
       if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || "Error al importar tareas");
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Error en el servidor");
       }
-      
+
       await fetchTasks();
-      setShowReviewModal(false);
-      setPendingTasks([]);
-      alert(`Importación completada: ${finalTasks.length} tareas añadidas.`);
+      setIsPasteModalOpen(false);
+      setPasteInput("");
+      
+      const summaryText = Object.entries(summary)
+        .map(([key, count]) => `${count} en ${key}`)
+        .join("\n");
+      
+      let finalMsg = `¡Importación exitosa!\nTotal: ${finalTasks.length} tareas añadidas.`;
+      if (discardedCount > 0) {
+        finalMsg += `\n\nNota: Se han omitido ${discardedCount} tareas que ya existían en el proyecto (duplicadas).`;
+      }
+      finalMsg += `\n\nDistribución:\n${summaryText}`;
+      
+      alert(finalMsg);
+      
     } catch (error: any) {
-      console.error("Bulk import confirm error:", error);
-      alert("Error al confirmar la importación: " + error.message);
+      alert("Error durante la importación: " + error.message);
     } finally {
       setImporting(false);
     }
   };
 
   const exportToExcel = () => {
-    const exportData = tasks.map((t, idx) => ({
-      '#': idx + 1,
-      ...t.dynamic_data,
-      'Fotos PRL': t.fotos_prl ? 'SÍ' : 'NO',
-      'Inventario': t.inventario ? 'SÍ' : 'NO',
-      'Incidencia': t.incidencia ? 'SÍ' : 'NO',
-      'Comentarios Internos': t.comentarios,
-      'Estado': t.status === 'pendiente' ? 'Pendiente de valorar' : t.status === 'cerrada' ? 'Cerrada' : 'Sin Estado'
-    }));
+    const exportData = tasks.map((t, idx) => {
+      const data = t.dynamic_data || {};
+      
+      // Campos del esquema estándar + campos de verificación
+      const row: any = {
+        '#': idx + 1,
+        'Ticket cliente': data['Ticket cliente'] || '',
+        'Sitio': data['Sitio'] || '',
+        'Población': data['Población'] || '',
+        'Provincia': data['Provincia'] || '',
+        'Fecha SLA': data['Fecha SLA'] || '',
+        'Fotos PRL': t.fotos_prl ? 'SÍ' : 'NO',
+        'Inventario': t.inventario ? 'SÍ' : 'NO',
+        'Comentarios': t.comentarios || '',
+        'Estado': t.status === 'cerrada' ? 'CERRADA' : t.status === 'incidencia' ? 'INCIDENCIA' : 'ABIERTA'
+      };
+
+      return row;
+    });
 
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Tareas");
     
-    // Auto-size columns
+    // Formateo visual del Excel
     if (exportData.length > 0) {
-      const colWidths = Object.keys(exportData[0]).map(key => {
-        const headerLen = key.length;
-        const maxContentLen = Math.max(...exportData.map(row => String(row[key as any] || "").length));
-        return { wch: Math.max(headerLen, maxContentLen) + 2 };
-      });
+      // Definir anchos de columna
+      const colWidths = [
+        { wch: 5 },   // #
+        { wch: 20 },  // Ticket
+        { wch: 35 },  // Sitio
+        { wch: 20 },  // Población
+        { wch: 15 },  // Provincia
+        { wch: 15 },  // Fecha SLA
+        { wch: 12 },  // Fotos PRL
+        { wch: 12 },  // Inventario
+        { wch: 40 },  // Comentarios
+        { wch: 12 }   // Estado
+      ];
       ws['!cols'] = colWidths;
+
+      // Estilos básicos (aunque XLSX básico no soporta mucho sin plugins pesados, 
+      // podemos asegurar que las cabeceras se vean bien en lectores modernos)
+      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        const address = XLSX.utils.encode_col(C) + "1";
+        if (!ws[address]) continue;
+        // XLSX.utils.json_to_sheet ya pone las cabeceras en la fila 1
+      }
     }
 
-    XLSX.writeFile(wb, `${project?.name || 'Proyecto'}_Bigmatic_ProjectFlow.xlsx`);
+    XLSX.writeFile(wb, `${project?.name || 'Proyecto'}_${MONTH_NAMES[month-1]}_Semana${week}.xlsx`);
   };
 
   const isOneDayAway = (dateStr: string) => {
@@ -424,8 +590,34 @@ export default function ProjectDetail() {
     return diffDays === 1;
   };
 
-  const allDynamicColumns = Array.from(new Set((Array.isArray(tasks) ? tasks : []).flatMap(t => Object.keys(t.dynamic_data || {}))));
-  const dynamicColumns = allDynamicColumns.filter(col => !hiddenColumns.has(col));
+  const formatDateForDisplay = (val: any) => {
+    if (!val) return "";
+    // Check if it's a date string (YYYY-MM-DD or similar)
+    const date = new Date(val);
+    if (!isNaN(date.getTime()) && typeof val === 'string' && (val.includes('-') || val.includes('/'))) {
+      const d = date.getDate().toString().padStart(2, '0');
+      const m = (date.getMonth() + 1).toString().padStart(2, '0');
+      const y = date.getFullYear();
+      return `${d}/${m}/${y}`;
+    }
+    return val;
+  };
+
+  const schemaOrder = [
+    'Ticket cliente',
+    'Sitio',
+    'Población',
+    'Provincia',
+    'Fecha SLA'
+  ];
+
+  const allDynamicColumns = schemaOrder;
+  
+  const sortedDynamicColumns = [...allDynamicColumns];
+
+  const dynamicColumns = sortedDynamicColumns.filter(col => !hiddenColumns.has(col));
+
+  const gridTemplate = `40px ${dynamicColumns.length > 0 ? `repeat(${dynamicColumns.length}, minmax(150px, 1fr))` : '1fr'} 120px 60px`;
 
   const toggleColumnVisibility = (col: string) => {
     const newHidden = new Set(hiddenColumns);
@@ -438,14 +630,17 @@ export default function ProjectDetail() {
   };
 
   const filteredTasks = (Array.isArray(tasks) ? tasks : []).filter(t => {
+    // Client-side filter for month and week to handle optimistic updates correctly
+    if (t.month !== month || t.week !== week) return false;
+
     const searchStr = search.toLowerCase();
     return Object.values(t.dynamic_data || {}).some(val => 
       String(val).toLowerCase().includes(searchStr)
     );
   }).sort((a, b) => {
     // Sort by Status (Closed tasks at the end)
-    const statusA = a.dynamic_data?.['Estado'] === 'Cerrado' ? 1 : 0;
-    const statusB = b.dynamic_data?.['Estado'] === 'Cerrado' ? 1 : 0;
+    const statusA = a.status === 'cerrada' ? 1 : 0;
+    const statusB = b.status === 'cerrada' ? 1 : 0;
     if (statusA !== statusB) return statusA - statusB;
 
     // Sort by SLA date (closest first)
@@ -467,6 +662,8 @@ export default function ProjectDetail() {
 
   const MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
+  const currentPeriod = getMonthAndWeekFromDate(new Date());
+
   return (
     <div className="flex flex-col h-full bg-slate-950 overflow-hidden">
       {/* Detail Header */}
@@ -485,6 +682,40 @@ export default function ProjectDetail() {
                 <span>{MONTH_NAMES[month - 1]} - Semana {week}</span>
                 <span className="text-[9px] text-blue-500 font-mono lowercase tracking-normal">({getWeekRange(month - 1, week)})</span>
               </span>
+              
+              {/* Quick Week Navigation */}
+              <div className="flex items-center gap-1 ml-4 bg-slate-800/50 p-1 rounded-xl border border-slate-700/50">
+                {[1, 2, 3, 4, 5].map(w => {
+                  const isCurrentWeek = currentPeriod.month === month && currentPeriod.week === w;
+                  return (
+                    <button
+                      key={w}
+                      onClick={() => {
+                        const params = new URLSearchParams(window.location.search);
+                        params.set('week', w.toString());
+                        window.history.pushState({}, '', `${window.location.pathname}?${params.toString()}`);
+                        // Trigger re-render by updating state if we had it, but here we rely on URL
+                        window.dispatchEvent(new PopStateEvent('popstate'));
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all relative ${
+                        week === w 
+                          ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' 
+                          : isCurrentWeek
+                            ? 'text-blue-400 bg-blue-900/20 border border-blue-500/30'
+                            : 'text-slate-500 hover:text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      S{w}
+                      {isCurrentWeek && week !== w && (
+                        <span className="absolute -top-1 -right-1 flex h-1.5 w-1.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500"></span>
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             <p className="text-sm text-slate-400 mt-1">{project?.description}</p>
           </div>
@@ -560,35 +791,11 @@ export default function ProjectDetail() {
               </AnimatePresence>
             </div>
 
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleImport} 
-              className="hidden" 
-              accept=".csv,.xlsx,.xls"
-            />
             <button 
-              onClick={() => screenshotInputRef.current?.click()}
-              disabled={importing}
-              className={`flex items-center gap-2 px-4 py-2 border border-slate-700 hover:border-blue-500 text-slate-300 hover:text-white transition-all text-[10px] font-bold uppercase tracking-widest rounded-lg ${importing ? 'opacity-50 cursor-not-allowed' : ''}`}
+              onClick={() => setIsPasteModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white transition-all text-[10px] font-bold uppercase tracking-widest rounded-lg shadow-lg shadow-emerald-900/20"
             >
-              <ImageIcon size={14} className={importing ? 'animate-pulse' : ''} /> 
-              {importing ? 'Procesando...' : 'Captura'}
-            </button>
-            <input 
-              type="file" 
-              ref={screenshotInputRef} 
-              onChange={handleScreenshotImport} 
-              className="hidden" 
-              accept="image/*"
-            />
-            <button 
-              onClick={() => fileInputRef.current?.click()}
-              disabled={importing}
-              className={`flex items-center gap-2 px-4 py-2 border border-slate-700 hover:border-blue-500 text-slate-300 hover:text-white transition-all text-[10px] font-bold uppercase tracking-widest rounded-lg ${importing ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              <Upload size={14} className={importing ? 'animate-bounce' : ''} /> 
-              {importing ? 'Importando...' : 'Importar'}
+              <Download size={14} className="rotate-180" /> Pegar Datos
             </button>
             <button 
               onClick={exportToExcel}
@@ -618,11 +825,11 @@ export default function ProjectDetail() {
           {/* Grid Header */}
           <div 
             className="grid bg-slate-900 sticky top-0 z-10 border-b border-slate-800 rounded-t-xl p-3"
-            style={{ gridTemplateColumns: `40px repeat(${dynamicColumns.length}, 1fr) 140px 60px` }}
+            style={{ gridTemplateColumns: gridTemplate }}
           >
             <div className="col-header">#</div>
-            {dynamicColumns.map(col => (
-              <div key={col} className="col-header uppercase tracking-tighter flex items-center justify-between group/col">
+            {dynamicColumns.length > 0 ? dynamicColumns.map(col => (
+              <div key={col} className="col-header uppercase tracking-tighter flex items-center justify-between group/col px-2">
                 <span className="truncate">{col}</span>
                 <button 
                   onClick={(e) => {
@@ -635,9 +842,11 @@ export default function ProjectDetail() {
                   <EyeOff size={12} />
                 </button>
               </div>
-            ))}
-            <div className="col-header">Estado</div>
-            <div className="col-header text-right">Acc.</div>
+            )) : (
+              <div className="col-header italic text-slate-600 px-2">Contenido de Tarea</div>
+            )}
+            <div className="col-header px-2">Estado</div>
+            <div className="col-header text-right px-2">Acc.</div>
           </div>
 
           {/* Grid Body */}
@@ -647,43 +856,57 @@ export default function ProjectDetail() {
                 <motion.div 
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className={`grid items-center border-b border-slate-800/50 p-3 transition-all cursor-pointer ${
-                    task.incidencia ? 'bg-rose-950/40 border-l-4 border-l-rose-500' :
-                    task.status === 'pendiente' ? 'bg-blue-950/40 border-l-4 border-l-blue-500' : 
-                    task.status === 'cerrada' ? 'bg-emerald-950/40 border-l-4 border-l-emerald-500' : 
-                    'bg-slate-900/50 border-l-4 border-l-transparent'
-                  } hover:brightness-125`}
-                  style={{ gridTemplateColumns: `40px repeat(${dynamicColumns.length}, 1fr) 140px 60px` }}
+                  className={`grid items-center border-b border-slate-800/50 p-3 transition-all cursor-pointer border-l-4 hover:brightness-125 ${
+                    task.status === 'cerrada' 
+                      ? 'bg-emerald-500/10 border-l-emerald-500 shadow-[inset_1px_0_0_0_rgba(16,185,129,0.1)]' 
+                      : task.status === 'incidencia'
+                        ? 'bg-rose-500/10 border-l-rose-500 shadow-[inset_1px_0_0_0_rgba(244,63,94,0.1)]'
+                        : 'bg-slate-900/50 border-l-blue-500/50'
+                  }`}
+                  style={{ gridTemplateColumns: gridTemplate }}
                   onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
                 >
-                  <div className="text-[10px] font-bold text-slate-600">{idx + 1}</div>
-                  {dynamicColumns.map(col => (
+                  <div className={`text-[10px] font-bold ${
+                    task.status === 'cerrada' ? 'text-emerald-500/50' : 
+                    task.status === 'incidencia' ? 'text-rose-500/50' : 
+                    'text-slate-600'
+                  }`}>{idx + 1}</div>
+                  {dynamicColumns.length > 0 ? dynamicColumns.map(col => (
                     <div key={col} className="px-2">
                       <input 
                         type="text"
-                        value={task.dynamic_data[col] || ""}
+                        value={formatDateForDisplay(task.dynamic_data[col] || "")}
                         onChange={(e) => updateTask(task.id, { dynamic_data: { [col]: e.target.value } })}
                         onClick={(e) => e.stopPropagation()}
-                        className="w-full bg-transparent focus:bg-slate-800 focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-1 text-xs text-slate-300 rounded transition-all"
+                        className={`w-full bg-transparent focus:bg-slate-800/50 focus:ring-1 focus:ring-blue-500/20 focus:outline-none p-1 text-xs rounded transition-all ${
+                          task.status === 'cerrada' ? 'text-emerald-100/90' : 
+                          task.status === 'incidencia' ? 'text-rose-100/90' : 
+                          'text-slate-300'
+                        }`}
                       />
                     </div>
-                  ))}
-                  <div className="px-2">
+                  )) : (
+                    <div className="px-2 text-xs text-slate-500 italic">Sin datos dinámicos</div>
+                  )}
+                  
+                  <div className="px-2" onClick={(e) => e.stopPropagation()}>
                     <select
-                      value={task.status || 'ninguno'}
+                      value={task.status}
                       onChange={(e) => updateTask(task.id, { status: e.target.value })}
-                      onClick={(e) => e.stopPropagation()}
-                      className={`w-full text-[10px] font-bold uppercase tracking-wider p-1 rounded border focus:outline-none transition-all ${
-                        task.status === 'pendiente' ? 'bg-blue-900/50 border-blue-800 text-blue-300' :
-                        task.status === 'cerrada' ? 'bg-emerald-900/50 border-emerald-800 text-emerald-300' :
-                        'bg-slate-800 border-slate-700 text-slate-500'
+                      className={`w-full bg-slate-950/50 border text-[10px] font-bold uppercase tracking-tighter rounded-md p-1 focus:outline-none transition-all cursor-pointer ${
+                        task.status === 'cerrada' 
+                          ? 'border-emerald-500/50 text-emerald-400' 
+                          : task.status === 'incidencia'
+                            ? 'border-rose-500/50 text-rose-400'
+                            : 'border-blue-500/50 text-blue-400'
                       }`}
                     >
-                      <option value="ninguno">Sin Estado</option>
-                      <option value="pendiente">Pendiente de valorar</option>
-                      <option value="cerrada">Cerrada</option>
+                      <option value="abierta" className="bg-slate-900 text-blue-400">Abierta</option>
+                      <option value="cerrada" className="bg-slate-900 text-emerald-400">Cerrada</option>
+                      <option value="incidencia" className="bg-slate-900 text-rose-400">Incidencia</option>
                     </select>
                   </div>
+
                   <div className="flex flex-col items-center justify-center gap-1">
                     <input 
                       type="checkbox"
@@ -707,42 +930,50 @@ export default function ProjectDetail() {
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
-                    className="bg-slate-900/80 border-b border-slate-800 overflow-hidden"
+                    className="bg-slate-900/60 border-b border-slate-800 overflow-hidden"
                   >
-                    <div className="py-6 px-8">
-                      <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
-                        {/* Checkboxes Section */}
-                        <div className="space-y-4">
-                          <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Estado de Tarea</h4>
-                          <div className="grid grid-cols-1 gap-3">
-                            {[
-                              { id: 'fotos_prl', label: 'Fotos PRL' },
-                              { id: 'inventario', label: 'Inventario' },
-                              { id: 'incidencia', label: 'Incidencia' }
-                            ].map((item) => (
-                              <label key={item.id} className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-xl border border-slate-700 cursor-pointer hover:border-blue-500/50 transition-all group">
-                                <input 
-                                  type="checkbox"
-                                  checked={!!(task as any)[item.id]}
-                                  onChange={(e) => updateTask(task.id, { [item.id]: e.target.checked })}
-                                  className="w-4 h-4 text-blue-600 rounded bg-slate-900 border-slate-700 focus:ring-blue-500 focus:ring-offset-slate-900"
-                                />
-                                <span className="text-xs font-semibold text-slate-300 group-hover:text-blue-400 transition-colors">
-                                  {item.label}
-                                </span>
-                              </label>
-                            ))}
-                          </div>
+                    <div className="py-3 px-6">
+                      <div className="max-w-4xl mx-auto flex items-start gap-8">
+                        {/* Left Side: Checkboxes */}
+                        <div className="flex flex-col gap-3 pt-2 min-w-[140px]">
+                          <p className="text-[9px] text-slate-500 uppercase font-bold tracking-widest mb-1">Verificaciones</p>
+                          <label className="flex items-center gap-3 cursor-pointer group">
+                            <div 
+                              onClick={() => updateTask(task.id, { fotos_prl: !task.fotos_prl })}
+                              className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
+                                task.fotos_prl 
+                                  ? 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-900/20' 
+                                  : 'bg-slate-800 border-slate-700 text-transparent group-hover:border-slate-500'
+                              }`}
+                            >
+                              <Check size={12} strokeWidth={3} />
+                            </div>
+                            <span className="text-xs text-slate-400 group-hover:text-slate-200 transition-colors">Fotos PRL</span>
+                          </label>
+
+                          <label className="flex items-center gap-3 cursor-pointer group">
+                            <div 
+                              onClick={() => updateTask(task.id, { inventario: !task.inventario })}
+                              className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
+                                task.inventario 
+                                  ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/20' 
+                                  : 'bg-slate-800 border-slate-700 text-transparent group-hover:border-slate-500'
+                              }`}
+                            >
+                              <Check size={12} strokeWidth={3} />
+                            </div>
+                            <span className="text-xs text-slate-400 group-hover:text-slate-200 transition-colors">Inventario</span>
+                          </label>
                         </div>
 
-                        {/* Comments Section */}
-                        <div className="flex flex-col">
-                          <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Comentarios Internos</h4>
+                        {/* Right Side: Comments */}
+                        <div className="flex-1 flex flex-col gap-1.5">
+                          <span className="text-[9px] text-slate-600 font-bold uppercase tracking-tighter">Comentarios Internos</span>
                           <textarea 
                             value={task.comentarios || ""}
                             onChange={(e) => updateTask(task.id, { comentarios: e.target.value })}
-                            placeholder="Escribe aquí cualquier observación..."
-                            className="flex-1 min-h-[120px] p-4 bg-slate-800/50 border border-slate-700 rounded-xl text-xs text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none shadow-inner placeholder:text-slate-600"
+                            placeholder="Añadir notas sobre la intervención..."
+                            className="w-full bg-slate-950/50 border border-slate-800/50 rounded-lg p-2.5 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-500/30 min-h-[60px] transition-all placeholder:text-slate-800 custom-scrollbar shadow-inner"
                           />
                         </div>
                       </div>
@@ -766,37 +997,76 @@ export default function ProjectDetail() {
 
       {/* Grid Footer / Stats */}
       <div className="p-4 border-t border-slate-800 bg-slate-950 flex flex-col gap-4">
-        {/* Color Legend */}
-        <div className="flex justify-center items-center gap-6 text-[9px] font-bold uppercase tracking-[0.2em] text-slate-500">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-rose-900/50 border border-rose-500/50 rounded-sm"></div>
-            <span>Incidencia</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-blue-900/50 border border-blue-500/50 rounded-sm"></div>
-            <span>Pendiente de valorar</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-emerald-900/50 border border-emerald-500/50 rounded-sm"></div>
-            <span>Cerrada</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-slate-800 border border-slate-700 rounded-sm"></div>
-            <span>Sin Estado</span>
-          </div>
-        </div>
-
         <div className="flex justify-between items-center text-[10px] font-mono uppercase tracking-widest text-slate-400">
           <div className="flex gap-6">
             <span>Total de Tareas: {Array.isArray(tasks) ? tasks.length : 0}</span>
-            <span className="text-emerald-500">Cerradas: {(Array.isArray(tasks) ? tasks : []).filter(t => t.status === 'cerrada').length}</span>
-            <span className="text-blue-500">Pendientes: {(Array.isArray(tasks) ? tasks : []).filter(t => t.status === 'pendiente').length}</span>
           </div>
           <div>
             Última Sincronización: {new Date().toLocaleTimeString()}
           </div>
         </div>
       </div>
+
+      <AnimatePresence>
+        {isPasteModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-6 border-b border-slate-800 flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white tracking-tight">Importación Inteligente</h2>
+                  <p className="text-xs text-slate-400 mt-1">Pega el contenido directamente desde tu portal o Excel.</p>
+                </div>
+                <button 
+                  onClick={() => setIsPasteModalOpen(false)}
+                  className="p-2 hover:bg-slate-800 rounded-full text-slate-500 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <textarea
+                  value={pasteInput}
+                  onChange={(e) => setPasteInput(e.target.value)}
+                  placeholder={`Ejemplo de formato:\nINC000016203998\nI2026_042903\n17/03/2026 11:04\n18/03/2026 10:04\nAbierta\nTF Unicaja Micro\n(Av. de Madrid, 120)\nLeon\nLeón`}
+                  className="w-full h-64 bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs font-mono text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all placeholder:text-slate-700 custom-scrollbar"
+                />
+
+                <div className="bg-blue-900/10 border border-blue-900/30 rounded-xl p-4">
+                  <h4 className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                    <AlertCircle size={12} /> Formato Inteligente
+                  </h4>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    El sistema detectará automáticamente: <span className="text-blue-400 font-bold">Ticket, Sitio, Población, Provincia y Fecha SLA</span>. Puedes pegar bloques multi-línea.
+                  </p>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    onClick={() => setIsPasteModalOpen(false)}
+                    className="px-4 py-2 text-slate-400 hover:text-white text-xs font-bold uppercase tracking-widest transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handlePasteImport}
+                    disabled={!pasteInput.trim() || importing}
+                    className="px-6 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-blue-900/20 flex items-center gap-2"
+                  >
+                    {importing ? <Clock size={14} className="animate-spin" /> : <Check size={14} />}
+                    {importing ? 'Importando...' : 'Procesar e Importar'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <ConfirmDialog
         isOpen={confirmDeleteProject}
@@ -822,7 +1092,7 @@ export default function ProjectDetail() {
         variant="danger"
       />
 
-      <ConfirmDialog 
+      <ConfirmDialog
         isOpen={confirmBulkDelete.isOpen}
         onClose={() => setConfirmBulkDelete({ ...confirmBulkDelete, isOpen: false })}
         onConfirm={confirmBulkDelete.type === 'all' ? deleteAllTasks : deleteSelectedTasks}
@@ -835,162 +1105,6 @@ export default function ProjectDetail() {
         variant="danger"
       />
 
-      {/* Review Import Modal */}
-      <AnimatePresence>
-        {showReviewModal && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 md:p-8">
-            <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.98 }}
-              className="bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl w-full max-w-[95vw] xl:max-w-7xl max-h-[92vh] flex flex-col overflow-hidden"
-            >
-              {/* Header */}
-              <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
-                <div>
-                  <h2 className="text-2xl font-bold text-white tracking-tight">Revisar Importación</h2>
-                  <p className="text-slate-400 text-sm mt-1">Personaliza las columnas y verifica los datos antes de añadirlos al proyecto.</p>
-                </div>
-                <button 
-                  onClick={() => setShowReviewModal(false)}
-                  className="p-2.5 hover:bg-slate-800 text-slate-400 hover:text-white rounded-full transition-all duration-200"
-                >
-                  <X size={24} />
-                </button>
-              </div>
-
-              <div className="p-6 md:p-8 flex-1 overflow-auto space-y-8 custom-scrollbar">
-                {/* Column Selection Section */}
-                <section>
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Columnas Detectadas</h3>
-                    <div className="flex gap-4">
-                      <button 
-                        onClick={() => setSelectedColumns(availableColumns)}
-                        className="text-xs text-blue-400 hover:text-blue-300 font-medium transition-colors"
-                      >
-                        Seleccionar Todas
-                      </button>
-                      <button 
-                        onClick={() => setSelectedColumns([])}
-                        className="text-xs text-slate-500 hover:text-slate-400 font-medium transition-colors"
-                      >
-                        Desmarcar Todas
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    {availableColumns.map(col => (
-                      <label 
-                        key={col}
-                        className={`group flex items-center gap-3 px-4 py-2.5 rounded-xl border-2 cursor-pointer transition-all duration-200 ${
-                          selectedColumns.includes(col) 
-                            ? 'bg-blue-500/10 border-blue-500/50 text-blue-100 shadow-[0_0_15px_rgba(59,130,246,0.1)]' 
-                            : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:border-slate-600 hover:bg-slate-800'
-                        }`}
-                      >
-                        <input 
-                          type="checkbox"
-                          className="hidden"
-                          checked={selectedColumns.includes(col)}
-                          onChange={() => {
-                            if (selectedColumns.includes(col)) {
-                              setSelectedColumns(selectedColumns.filter(c => c !== col));
-                            } else {
-                              setSelectedColumns([...selectedColumns, col]);
-                            }
-                          }}
-                        />
-                        <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors ${
-                          selectedColumns.includes(col) ? 'bg-blue-500 border-blue-500' : 'border-slate-600 group-hover:border-slate-500'
-                        }`}>
-                          {selectedColumns.includes(col) && <Check size={14} className="text-white stroke-[3px]" />}
-                        </div>
-                        <span className="text-sm font-semibold">{col}</span>
-                      </label>
-                    ))}
-                  </div>
-                </section>
-
-                {/* Preview Section */}
-                <section>
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Vista Previa Ampliada ({pendingTasks.length} filas)</h3>
-                    <span className="text-xs text-slate-500 italic">Mostrando las primeras 10 filas</span>
-                  </div>
-                  <div className="border border-slate-800 rounded-2xl overflow-hidden bg-slate-950/50">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm text-left border-collapse">
-                        <thead>
-                          <tr className="bg-slate-800/80 text-slate-200 font-bold border-b border-slate-700">
-                            <th className="px-6 py-4 whitespace-nowrap sticky left-0 bg-slate-800 z-10">Ubicación</th>
-                            {selectedColumns.map(col => (
-                              <th key={col} className="px-6 py-4 whitespace-nowrap min-w-[150px]">{col}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800/50">
-                          {pendingTasks.slice(0, 10).map((task, idx) => (
-                            <tr key={idx} className="hover:bg-slate-800/30 transition-colors group">
-                              <td className="px-6 py-4 whitespace-nowrap sticky left-0 bg-slate-900/90 group-hover:bg-slate-800/90 z-10">
-                                <span className="px-2 py-1 rounded bg-slate-700 text-[10px] font-bold text-slate-300">
-                                  M{task.month} S{task.week}
-                                </span>
-                              </td>
-                              {selectedColumns.map(col => (
-                                <td key={col} className="px-6 py-4 text-slate-400 font-medium">
-                                  {task.dynamic_data[col] || <span className="text-slate-700 italic">vacío</span>}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {pendingTasks.length > 10 && (
-                      <div className="p-4 text-center text-xs font-medium text-slate-500 bg-slate-900/50 border-t border-slate-800">
-                        + {pendingTasks.length - 10} filas adicionales detectadas
-                      </div>
-                    )}
-                  </div>
-                </section>
-              </div>
-
-              {/* Footer */}
-              <div className="p-6 border-t border-slate-800 bg-slate-900/80 flex flex-col sm:flex-row justify-between items-center gap-4">
-                <div className="text-slate-500 text-xs font-medium">
-                  {selectedColumns.length} columnas seleccionadas para importar
-                </div>
-                <div className="flex gap-3 w-full sm:w-auto">
-                  <button
-                    onClick={() => setShowReviewModal(false)}
-                    className="flex-1 sm:flex-none px-6 py-2.5 text-sm font-bold text-slate-300 bg-slate-800 border border-slate-700 rounded-xl hover:bg-slate-700 hover:text-white transition-all duration-200"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={confirmBulkImport}
-                    disabled={importing || selectedColumns.length === 0}
-                    className="flex-1 sm:flex-none px-8 py-2.5 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-500 shadow-lg shadow-blue-900/20 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {importing ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Procesando...
-                      </>
-                    ) : (
-                      <>
-                        <Download size={18} />
-                        Confirmar Importación
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

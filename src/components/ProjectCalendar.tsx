@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Calendar, ChevronRight } from "lucide-react";
 import { Project } from "../types";
 import { motion, AnimatePresence } from "motion/react";
-import { getWeekRange } from "../utils/dateUtils";
+import { getWeekRange, getMonthAndWeekFromDate } from "../utils/dateUtils";
 
 const MONTHS = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -23,6 +23,8 @@ export default function ProjectCalendar() {
   const navigate = useNavigate();
   const [project, setProject] = useState<Project | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
+
+  const currentPeriod = getMonthAndWeekFromDate(new Date());
 
   useEffect(() => {
     fetchProject();
@@ -48,46 +50,68 @@ export default function ProjectCalendar() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {MONTHS.map((month, index) => (
-          <div key={month} className="flex flex-col gap-2">
-            <button
-              onClick={() => setSelectedMonth(selectedMonth === index + 1 ? null : index + 1)}
-              className={`p-6 rounded-xl border transition-all flex flex-col items-center justify-center gap-3 group ${
-                selectedMonth === index + 1 
-                  ? "bg-blue-600 border-blue-600 text-white shadow-lg scale-105" 
-                  : "bg-slate-900 border-slate-800 text-slate-300 hover:border-blue-500/50 hover:shadow-2xl"
-              }`}
-            >
-              <Calendar size={24} className={selectedMonth === index + 1 ? "text-white" : "text-blue-400 group-hover:scale-110 transition-transform"} />
-              <span className="font-bold uppercase tracking-widest text-xs">{month}</span>
-            </button>
+        {MONTHS.map((month, index) => {
+          const isCurrentMonth = currentPeriod.month === index + 1;
+          return (
+            <div key={month} className="flex flex-col gap-2">
+              <button
+                onClick={() => setSelectedMonth(selectedMonth === index + 1 ? null : index + 1)}
+                className={`p-6 rounded-xl border transition-all flex flex-col items-center justify-center gap-3 group relative ${
+                  selectedMonth === index + 1 
+                    ? "bg-blue-600 border-blue-600 text-white shadow-lg scale-105" 
+                    : isCurrentMonth
+                      ? "bg-slate-900 border-blue-500/50 text-slate-300 hover:border-blue-500 hover:shadow-2xl"
+                      : "bg-slate-900 border-slate-800 text-slate-300 hover:border-blue-500/50 hover:shadow-2xl"
+                }`}
+              >
+                {isCurrentMonth && (
+                  <span className="absolute top-2 right-2 flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                  </span>
+                )}
+                <Calendar size={24} className={selectedMonth === index + 1 ? "text-white" : isCurrentMonth ? "text-blue-400" : "text-slate-600 group-hover:text-blue-400 group-hover:scale-110 transition-transform"} />
+                <span className={`font-bold uppercase tracking-widest text-xs ${isCurrentMonth && selectedMonth !== index + 1 ? "text-blue-400" : ""}`}>{month}</span>
+                {isCurrentMonth && selectedMonth !== index + 1 && <span className="text-[8px] font-bold text-blue-500/80 uppercase tracking-tighter">Mes Actual</span>}
+              </button>
 
-            <AnimatePresence>
-              {selectedMonth === index + 1 && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="overflow-hidden flex flex-col gap-1 mt-1"
-                >
-                  {WEEKS.map((week) => (
-                    <button
-                      key={week.id}
-                      onClick={() => navigate(`/project/${id}/tasks?month=${index + 1}&week=${week.id}`)}
-                      className="flex items-center justify-between p-3 bg-slate-900 border border-slate-800 rounded-lg text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:bg-slate-800 hover:border-blue-500/50 hover:text-blue-400 transition-all group"
-                    >
-                      <div className="flex flex-col items-start gap-0.5">
-                        <span>{week.name}</span>
-                        <span className="text-[9px] text-slate-500 font-mono lowercase tracking-normal">({getWeekRange(index, week.id)})</span>
-                      </div>
-                      <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        ))}
+              <AnimatePresence>
+                {selectedMonth === index + 1 && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden flex flex-col gap-1 mt-1"
+                  >
+                    {WEEKS.map((week) => {
+                      const isCurrentWeek = isCurrentMonth && currentPeriod.week === week.id;
+                      return (
+                        <button
+                          key={week.id}
+                          onClick={() => navigate(`/project/${id}/tasks?month=${index + 1}&week=${week.id}`)}
+                          className={`flex items-center justify-between p-3 border rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all group ${
+                            isCurrentWeek
+                              ? "bg-blue-900/20 border-blue-500/50 text-blue-400 hover:bg-blue-900/30"
+                              : "bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:border-blue-500/50 hover:text-blue-400"
+                          }`}
+                        >
+                          <div className="flex flex-col items-start gap-0.5">
+                            <div className="flex items-center gap-2">
+                              <span>{week.name}</span>
+                              {isCurrentWeek && <span className="bg-blue-500 text-white text-[7px] px-1 rounded-sm">Actual</span>}
+                            </div>
+                            <span className="text-[9px] text-slate-500 font-mono lowercase tracking-normal">({getWeekRange(index, week.id)})</span>
+                          </div>
+                          <ChevronRight size={14} className={`transition-opacity ${isCurrentWeek ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`} />
+                        </button>
+                      );
+                    })}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

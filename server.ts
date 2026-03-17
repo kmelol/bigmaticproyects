@@ -160,9 +160,31 @@ async function startServer() {
   app.post("/api/projects/:projectId/tasks", async (req, res) => {
     try {
       const { projectId } = req.params;
-      const { month, week, dynamic_data } = req.body;
-      const title = dynamic_data?.['Título'] || dynamic_data?.['Title'] || 'Nueva Tarea';
-      const taskData = { project_id: projectId, month, week, dynamic_data, title };
+      const { month, week, dynamic_data, fotos_prl, inventario, comentarios } = req.body;
+      
+      const allowedFields = [
+        'Ticket cliente', 'Fecha SLA', 'Sitio', 'Población', 'Provincia'
+      ];
+      const cleanData: any = {};
+      if (dynamic_data) {
+        Object.keys(dynamic_data).forEach(key => {
+          if (allowedFields.includes(key)) {
+            cleanData[key] = dynamic_data[key];
+          }
+        });
+      }
+
+      const title = cleanData['Ticket cliente'] || cleanData['Sitio'] || 'Nueva Tarea';
+      const taskData = { 
+        project_id: projectId, 
+        month, 
+        week, 
+        dynamic_data: cleanData, 
+        title,
+        fotos_prl: fotos_prl || false,
+        inventario: inventario || false,
+        comentarios: comentarios || ''
+      };
       
       const { data, error } = await supabase
         .from('tasks')
@@ -180,9 +202,30 @@ async function startServer() {
   app.put("/api/tasks/:id", async (req, res) => {
     try {
       const { id } = req.params;
+      const updates = { ...req.body };
+
+      // Limpieza de dynamic_data si está presente en la actualización
+      if (updates.dynamic_data) {
+        const allowedFields = [
+          'Ticket cliente', 'Fecha SLA', 'Sitio', 'Población', 'Provincia'
+        ];
+        const cleanData: any = {};
+        Object.keys(updates.dynamic_data).forEach(key => {
+          if (allowedFields.includes(key)) {
+            cleanData[key] = updates.dynamic_data[key];
+          }
+        });
+        updates.dynamic_data = cleanData;
+        
+        // Actualizar título si es necesario
+        if (cleanData['Ticket cliente'] || cleanData['Sitio']) {
+          updates.title = cleanData['Ticket cliente'] || cleanData['Sitio'];
+        }
+      }
+
       const { error } = await supabase
         .from('tasks')
-        .update(req.body)
+        .update(updates)
         .eq('id', id);
 
       if (error) throw error;
@@ -242,39 +285,58 @@ async function startServer() {
     try {
       const { projectId } = req.params;
       const { month: defaultMonth, week: defaultWeek, tasks: taskList } = req.body;
-      const tasks = taskList.map((t: any) => {
-        const dynamicData = t.dynamic_data || t;
-        // Try to find a title-like field for the legacy 'title' column
-        const title = dynamicData['Título'] || dynamicData['Title'] || dynamicData['Nombre'] || dynamicData['Tarea'] || 'Tarea Importada';
-        
-        // Extract INC specifically for deduplication
-        const inc = dynamicData['INC'] || dynamicData['Incidencia'] || dynamicData['Aviso'] || dynamicData['Número'] || title;
+      
+      console.log(`Recibida solicitud de importación masiva para proyecto ${projectId}. Tareas: ${taskList?.length}`);
 
+      if (!taskList || !Array.isArray(taskList)) {
+        return res.status(400).json({ error: "Formato de tareas inválido" });
+      }
+
+      const allowedFields = [
+        'Ticket cliente', 'Fecha SLA', 'Sitio', 'Población', 'Provincia'
+      ];
+
+      const tasks = taskList.map((t: any) => {
+        const rawData = t.dynamic_data || t;
+        
+        // Filtro estricto: solo permitimos los campos del estándar
+        const dynamicData: any = {};
+        allowedFields.forEach(field => {
+          if (rawData[field] !== undefined) {
+            dynamicData[field] = rawData[field];
+          }
+        });
+        
+        // Título basado en Ticket o Sitio
+        const title = dynamicData['Ticket cliente'] || dynamicData['Sitio'] || 'Tarea Importada';
+        
         return { 
           project_id: projectId,
           month: t.month || defaultMonth,
           week: t.week || defaultWeek,
           title: title,
-          inc: String(inc),
-          dynamic_data: dynamicData 
+          dynamic_data: dynamicData,
+          status: t.status || dynamicData['Estado'] || 'abierta',
+          fotos_prl: t.fotos_prl || false,
+          inventario: t.inventario || false,
+          comentarios: t.comentarios || ''
         };
       });
 
-      // Deduplicate tasks based on project_id and inc
-      const uniqueTasksMap = new Map();
-      tasks.forEach(task => {
-        const key = `${task.project_id}-${task.inc}`;
-        uniqueTasksMap.set(key, task);
-      });
-      const uniqueTasks = Array.from(uniqueTasksMap.values());
+      console.log(`Procesando ${tasks.length} tareas para inserción.`);
       
       const { data, error } = await supabase
         .from('tasks')
-        .upsert(uniqueTasks, { onConflict: 'project_id, inc' });
+        .insert(tasks);
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error en inserción masiva:", error);
+        throw error;
+      }
+      
       res.json({ success: true, count: tasks.length });
     } catch (error: any) {
+      console.error("Error en importación masiva:", error);
       res.status(500).json({ error: error.message });
     }
   });
