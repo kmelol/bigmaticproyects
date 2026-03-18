@@ -7,7 +7,7 @@ import {
   X, Check, Settings, Eye, EyeOff
 } from "lucide-react";
 import { Project, Task } from "../types";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { motion, AnimatePresence } from "motion/react";
 import ConfirmDialog from "./ConfirmDialog";
 import { getWeekRange, getMonthAndWeekFromDate, parseDate, findDateAndRelocate } from "../utils/dateUtils";
@@ -524,59 +524,109 @@ export default function ProjectDetail() {
     }
   };
 
-  const exportToExcel = () => {
-    const exportData = tasks.map((t, idx) => {
-      const data = t.dynamic_data || {};
-      
-      // Campos del esquema estándar + campos de verificación
-      const row: any = {
-        '#': idx + 1,
-        'Ticket cliente': data['Ticket cliente'] || '',
-        'Sitio': data['Sitio'] || '',
-        'Población': data['Población'] || '',
-        'Provincia': data['Provincia'] || '',
-        'Fecha SLA': data['Fecha SLA'] || '',
-        'Fotos PRL': t.fotos_prl ? 'SÍ' : 'NO',
-        'Inventario': t.inventario ? 'SÍ' : 'NO',
-        'Comentarios': t.comentarios || '',
-        'Estado': t.status === 'cerrada' ? 'CERRADA' : t.status === 'incidencia' ? 'INCIDENCIA' : 'ABIERTA'
-      };
+  const exportToExcel = async () => {
+    const tasksToExport = selectedTaskIds.size > 0 
+      ? tasks.filter(t => selectedTaskIds.has(t.id))
+      : tasks;
 
-      return row;
-    });
-
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Tareas");
-    
-    // Formateo visual del Excel
-    if (exportData.length > 0) {
-      // Definir anchos de columna
-      const colWidths = [
-        { wch: 5 },   // #
-        { wch: 20 },  // Ticket
-        { wch: 35 },  // Sitio
-        { wch: 20 },  // Población
-        { wch: 15 },  // Provincia
-        { wch: 15 },  // Fecha SLA
-        { wch: 12 },  // Fotos PRL
-        { wch: 12 },  // Inventario
-        { wch: 40 },  // Comentarios
-        { wch: 12 }   // Estado
-      ];
-      ws['!cols'] = colWidths;
-
-      // Estilos básicos (aunque XLSX básico no soporta mucho sin plugins pesados, 
-      // podemos asegurar que las cabeceras se vean bien en lectores modernos)
-      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-      for (let C = range.s.c; C <= range.e.c; ++C) {
-        const address = XLSX.utils.encode_col(C) + "1";
-        if (!ws[address]) continue;
-        // XLSX.utils.json_to_sheet ya pone las cabeceras en la fila 1
-      }
+    if (tasksToExport.length === 0) {
+      alert("No hay tareas para exportar.");
+      return;
     }
 
-    XLSX.writeFile(wb, `${project?.name || 'Proyecto'}_${MONTH_NAMES[month-1]}_Semana${week}.xlsx`);
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Tareas");
+
+    // Definir columnas
+    worksheet.columns = [
+      { header: '#', key: 'id', width: 5 },
+      { header: 'Ticket cliente', key: 'ticket', width: 20 },
+      { header: 'Sitio', key: 'sitio', width: 40 },
+      { header: 'Población', key: 'poblacion', width: 20 },
+      { header: 'Provincia', key: 'provincia', width: 15 },
+      { header: 'Fecha SLA', key: 'sla', width: 20 },
+      { header: 'Fotos PRL', key: 'prl', width: 12 },
+      { header: 'Inventario', key: 'inv', width: 12 },
+      { header: 'Comentarios', key: 'obs', width: 45 },
+      { header: 'Estado', key: 'status', width: 15 }
+    ];
+
+    // Añadir datos
+    tasksToExport.forEach((t, idx) => {
+      const data = t.dynamic_data || {};
+      worksheet.addRow({
+        id: idx + 1,
+        ticket: data['Ticket cliente'] || '',
+        sitio: data['Sitio'] || '',
+        poblacion: data['Población'] || '',
+        provincia: data['Provincia'] || '',
+        sla: data['Fecha SLA'] || '',
+        prl: t.fotos_prl ? 'SÍ' : 'NO',
+        inv: t.inventario ? 'SÍ' : 'NO',
+        obs: t.comentarios || '',
+        status: t.status === 'cerrada' ? 'CERRADA' : t.status === 'incidencia' ? 'INCIDENCIA' : 'ABIERTA'
+      });
+    });
+
+    // Aplicar estilos a la cabecera
+    const headerRow = worksheet.getRow(1);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF1E293B' } // Slate-800
+    };
+    headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    // Aplicar estilos a todas las celdas (centrado)
+    worksheet.eachRow((row, rowNumber) => {
+      row.eachCell((cell, colNumber) => {
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+        };
+
+        // Negrita para el Ticket cliente (columna 2)
+        if (rowNumber > 1 && colNumber === 2) {
+          cell.font = { bold: true };
+        }
+
+        // Colores para el Estado (columna 10)
+        if (rowNumber > 1 && colNumber === 10) {
+          const status = cell.value?.toString().toUpperCase();
+          if (status === 'CERRADA') {
+            cell.font = { color: { argb: 'FF059669' }, bold: true }; // Emerald-600
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFDF5' } };
+          } else if (status === 'INCIDENCIA') {
+            cell.font = { color: { argb: 'FFDC2626' }, bold: true }; // Red-600
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF2F2' } };
+          } else if (status === 'ABIERTA') {
+            cell.font = { color: { argb: 'FF2563EB' }, bold: true }; // Blue-600
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } };
+          }
+        }
+      });
+      
+      // Altura de fila para mejor legibilidad
+      if (rowNumber > 1) {
+        row.height = 35; // Un poco más alto para el wrapText
+      } else {
+        row.height = 30;
+      }
+    });
+
+    // Generar y descargar el archivo
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${project?.name || 'Proyecto'}_${MONTH_NAMES[month-1]}_Semana${week}.xlsx`;
+    anchor.click();
+    window.URL.revokeObjectURL(url);
   };
 
   const isOneDayAway = (dateStr: string) => {
@@ -846,7 +896,15 @@ export default function ProjectDetail() {
               <div className="col-header italic text-slate-600 px-2">Contenido de Tarea</div>
             )}
             <div className="col-header px-2">Estado</div>
-            <div className="col-header text-right px-2">Acc.</div>
+            <div className="col-header flex justify-center px-2">
+              <input 
+                type="checkbox"
+                checked={tasks.length > 0 && selectedTaskIds.size === tasks.length}
+                onChange={toggleSelectAll}
+                className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-blue-600 focus:ring-blue-500/20 cursor-pointer"
+                title="Seleccionar todas las tareas"
+              />
+            </div>
           </div>
 
           {/* Grid Body */}
@@ -913,14 +971,8 @@ export default function ProjectDetail() {
                       checked={selectedTaskIds.has(task.id)}
                       onChange={() => toggleSelectTask(task.id)}
                       onClick={(e) => e.stopPropagation()}
-                      className="w-3 h-3 rounded border-slate-700 bg-slate-800 text-blue-600 focus:ring-blue-500/20 cursor-pointer"
+                      className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-blue-600 focus:ring-blue-500/20 cursor-pointer"
                     />
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }}
-                      className="p-1 text-slate-600 hover:text-rose-500 transition-colors"
-                    >
-                      <Trash2 size={14} />
-                    </button>
                   </div>
                 </motion.div>
 
@@ -998,8 +1050,24 @@ export default function ProjectDetail() {
       {/* Grid Footer / Stats */}
       <div className="p-4 border-t border-slate-800 bg-slate-950 flex flex-col gap-4">
         <div className="flex justify-between items-center text-[10px] font-mono uppercase tracking-widest text-slate-400">
-          <div className="flex gap-6">
+          <div className="flex items-center gap-6">
             <span>Total de Tareas: {Array.isArray(tasks) ? tasks.length : 0}</span>
+            {selectedTaskIds.size > 0 && (
+              <motion.div 
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="flex items-center gap-4 border-l border-slate-800 pl-6"
+              >
+                <span className="text-blue-400 font-bold">{selectedTaskIds.size} Seleccionadas</span>
+                <button 
+                  onClick={() => setConfirmBulkDelete({ isOpen: true, type: 'selected' })}
+                  className="flex items-center gap-2 px-3 py-1 bg-rose-900/20 text-rose-400 hover:bg-rose-900/40 rounded-lg transition-all border border-rose-500/20"
+                >
+                  <Trash2 size={12} />
+                  Borrar Selección
+                </button>
+              </motion.div>
+            )}
           </div>
           <div>
             Última Sincronización: {new Date().toLocaleTimeString()}
