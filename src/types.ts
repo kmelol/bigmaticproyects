@@ -15,6 +15,7 @@ export interface Task {
   dynamic_data: Record<string, any>;
   fotos_prl: boolean;
   inventario: boolean;
+  prioritario: boolean;
   comentarios: string;
   status: 'abierta' | 'cerrada' | 'incidencia';
   created_at?: string;

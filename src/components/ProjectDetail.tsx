@@ -122,7 +122,8 @@ export default function ProjectDetail() {
         "Provincia": "",
         "Fecha SLA": ""
       },
-      status: "abierta"
+      status: "abierta",
+      prioritario: false
     };
     const res = await fetch(`/api/projects/${id}/tasks`, {
       method: "POST",
@@ -334,7 +335,7 @@ export default function ProjectDetail() {
       let discardedCount = 0;
 
       const IGNORE_REGEX = [
-        /^(abierta|cerrada|incidencia|normal|baja|media|alta|asignada|en curso|pendiente|validar|validación|resuelta|reabierta|incidencia|usuario|operativo|máquina|maquina|equipo|avería|averia|fallo|error|problema)$/i,
+        /^(abierta|cerrada|incidencia|normal|baja|media|alta|asignada|en curso|pendiente|validar|validación|resuelta|reabierta|incidencia|usuario|operativo|máquina|maquina|equipo|avería|averia|fallo|error|problema|motivo|cita concertada.*|parada de reloj|espera|cancelada|anulada|completo|p\.g\. administrativa|asignada a|asignado a|proyecto|ticket cliente|ticket cliente final|fecha entrada|fecha sla|estado|población|provincia|sitio|asignada a)$/i,
         /^[A-Z]\d+(_\d+)?$/i, // IDs como I2026_042903 o T12345
         /^\d{5,}$/,           // Números largos
         /^[A-Z]{1,2}$/i,      // Códigos de 1-2 letras solos
@@ -349,6 +350,8 @@ export default function ProjectDetail() {
         if (!val) return "";
         return val.trim().replace(/^["']|["']$/g, '').trim();
       };
+
+      let skipNextValue = false;
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -384,20 +387,56 @@ export default function ProjectDetail() {
             }
           };
 
-          // Procesar el resto de la línea del ticket para buscar la fecha SLA (la más lejana)
+          // Procesar el resto de la línea del ticket
+          let skipNextInLine = false;
           cols.forEach((val, idx) => {
             if (idx === ticketIdx) return;
-            const date = parseDate(val);
+            if (skipNextInLine) {
+              skipNextInLine = false;
+              return;
+            }
+
+            const cleanVal = cleanValue(val);
+            if (!cleanVal) return;
+
+            // Si detectamos cabeceras que queremos ignorar junto con su contenido
+            if (/^(asignada a|asignado a|motivo|proyecto)$/i.test(cleanVal)) {
+              skipNextInLine = true;
+              return;
+            }
+
+            if (IGNORE_REGEX.some(re => re.test(cleanVal))) return;
+
+            const date = parseDate(cleanVal);
             if (date) {
               const currentSLA = currentTask.dynamic_data["Fecha SLA"];
               if (!currentSLA) {
-                currentTask.dynamic_data["Fecha SLA"] = val;
+                currentTask.dynamic_data["Fecha SLA"] = cleanVal;
               } else {
                 const existingDate = parseDate(currentSLA);
                 if (existingDate && date > existingDate) {
-                  currentTask.dynamic_data["Fecha SLA"] = val;
+                  currentTask.dynamic_data["Fecha SLA"] = cleanVal;
                 }
               }
+              return;
+            }
+
+            const norm = normalize(cleanVal);
+            if (normalizedProvincias.includes(norm)) {
+              if (!currentTask.dynamic_data["Provincia"]) {
+                currentTask.dynamic_data["Provincia"] = cleanVal;
+              }
+              return;
+            }
+
+            // Fallback para Sitio/Población en la misma línea
+            const hasRealAddressInfoLine = /\(.*\)/.test(cleanVal) && cleanVal.replace(/\(.\)/g, '').length > 5;
+            if (hasRealAddressInfoLine) {
+              currentTask.dynamic_data["Sitio"] = cleanVal;
+            } else if (!currentTask.dynamic_data["Sitio"] && cleanVal.length > 5) {
+              currentTask.dynamic_data["Sitio"] = cleanVal;
+            } else if (!currentTask.dynamic_data["Población"]) {
+              currentTask.dynamic_data["Población"] = cleanVal;
             }
           });
         } else if (currentTask) {
@@ -405,6 +444,17 @@ export default function ProjectDetail() {
           cols.forEach(val => {
             const cleanVal = cleanValue(val);
             if (!cleanVal) return;
+
+            if (skipNextValue) {
+              skipNextValue = false;
+              return;
+            }
+
+            // Si detectamos cabeceras que queremos ignorar junto con su contenido
+            if (/^(asignada a|asignado a|motivo|proyecto)$/i.test(cleanVal)) {
+              skipNextValue = true;
+              return;
+            }
 
             // Filtro agresivo para descripciones: 
             // Si tiene muchas palabras y no tiene números ni paréntesis, es una descripción
@@ -443,8 +493,10 @@ export default function ProjectDetail() {
               return;
             }
 
-            // 3. Sitio (Si tiene paréntesis es la dirección, que es lo que el usuario quiere priorizar)
-            if (cleanVal.includes('(') || cleanVal.includes(')')) {
+            // 3. Sitio (Si tiene paréntesis con contenido real es la dirección, que es lo que el usuario quiere priorizar)
+            // Ignoramos paréntesis cortos como (U), (A), (1) que suelen ser estados o códigos
+            const hasRealAddressInfo = /\(.*\)/.test(cleanVal) && cleanVal.replace(/\(.\)/g, '').length > 5;
+            if (hasRealAddressInfo) {
               currentTask.dynamic_data["Sitio"] = cleanVal;
               return;
             }
@@ -469,7 +521,7 @@ export default function ProjectDetail() {
           taskMonth = relocation.month;
           taskWeek = relocation.week;
         }
-        return { ...t, status: "abierta", month: taskMonth, week: taskWeek };
+        return { ...t, status: "abierta", month: taskMonth, week: taskWeek, prioritario: false };
       });
 
       if (finalTasks.length === 0) {
@@ -631,7 +683,8 @@ export default function ProjectDetail() {
 
   const isOneDayAway = (dateStr: string) => {
     if (!dateStr) return false;
-    const deadline = new Date(dateStr);
+    const deadline = parseDate(dateStr);
+    if (!deadline) return false;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     deadline.setHours(0, 0, 0, 0);
@@ -642,9 +695,9 @@ export default function ProjectDetail() {
 
   const formatDateForDisplay = (val: any) => {
     if (!val) return "";
-    // Check if it's a date string (YYYY-MM-DD or similar)
-    const date = new Date(val);
-    if (!isNaN(date.getTime()) && typeof val === 'string' && (val.includes('-') || val.includes('/'))) {
+    // Usar nuestra función parseDate que ya prioriza el formato español
+    const date = parseDate(val);
+    if (date && !isNaN(date.getTime()) && typeof val === 'string' && (val.includes('-') || val.includes('/'))) {
       const d = date.getDate().toString().padStart(2, '0');
       const m = (date.getMonth() + 1).toString().padStart(2, '0');
       const y = date.getFullYear();
@@ -915,11 +968,13 @@ export default function ProjectDetail() {
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
                   className={`grid items-center border-b border-slate-800/50 p-3 transition-all cursor-pointer border-l-4 hover:brightness-125 ${
-                    task.status === 'cerrada' 
-                      ? 'bg-emerald-500/10 border-l-emerald-500 shadow-[inset_1px_0_0_0_rgba(16,185,129,0.1)]' 
-                      : task.status === 'incidencia'
-                        ? 'bg-rose-500/10 border-l-rose-500 shadow-[inset_1px_0_0_0_rgba(244,63,94,0.1)]'
-                        : 'bg-slate-900/50 border-l-blue-500/50'
+                    task.prioritario
+                      ? 'bg-orange-500/20 border-l-orange-500 shadow-[inset_1px_0_0_0_rgba(249,115,22,0.1)]'
+                      : task.status === 'cerrada' 
+                        ? 'bg-emerald-500/10 border-l-emerald-500 shadow-[inset_1px_0_0_0_rgba(16,185,129,0.1)]' 
+                        : task.status === 'incidencia'
+                          ? 'bg-rose-500/10 border-l-rose-500 shadow-[inset_1px_0_0_0_rgba(244,63,94,0.1)]'
+                          : 'bg-slate-900/50 border-l-blue-500/50'
                   }`}
                   style={{ gridTemplateColumns: gridTemplate }}
                   onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
@@ -988,7 +1043,20 @@ export default function ProjectDetail() {
                       <div className="max-w-4xl mx-auto flex items-start gap-8">
                         {/* Left Side: Checkboxes */}
                         <div className="flex flex-col gap-3 pt-2 min-w-[140px]">
-                          <p className="text-[9px] text-slate-500 uppercase font-bold tracking-widest mb-1">Verificaciones</p>
+                          <label className="flex items-center gap-3 cursor-pointer group">
+                            <div 
+                              onClick={() => updateTask(task.id, { prioritario: !task.prioritario })}
+                              className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
+                                task.prioritario 
+                                  ? 'bg-orange-600 border-orange-500 text-white shadow-lg shadow-orange-900/20' 
+                                  : 'bg-slate-800 border-slate-700 text-transparent group-hover:border-slate-500'
+                              }`}
+                            >
+                              <Check size={12} strokeWidth={3} />
+                            </div>
+                            <span className="text-xs text-slate-400 group-hover:text-slate-200 transition-colors">Prioritario</span>
+                          </label>
+
                           <label className="flex items-center gap-3 cursor-pointer group">
                             <div 
                               onClick={() => updateTask(task.id, { fotos_prl: !task.fotos_prl })}

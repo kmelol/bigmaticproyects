@@ -131,14 +131,17 @@ export const parseDate = (dateVal: any): Date | null => {
 
   if (!dateStr) return null;
 
-  // Limpiar caracteres extraños pero mantener espacios para nombres de meses
-  const cleanStr = dateStr.replace(/[^\d\/\\\-\.\s[a-zA-ZáéíóúÁÉÍÓÚ]/g, '').trim();
+  // Intentar extraer solo la parte de la fecha si hay hora (ej: "17/03/2026 12:30" -> "17/03/2026")
+  const dateOnlyPart = dateStr.split(/\s+/)[0];
   
-  // Normalizar separadores comunes a '/'
-  const normalizedStr = cleanStr.replace(/[\s\.\\\-]/g, '/').replace(/\/+/g, '/');
+  // Limpiar caracteres extraños pero mantener separadores
+  const cleanStr = dateOnlyPart.replace(/[^\d\/\\\-\.]/g, '').trim();
+  
+  // Normalizar separadores a '/'
+  const normalizedStr = cleanStr.replace(/[\.\\\-]/g, '/').replace(/\/+/g, '/');
 
-  // Try DD/MM/YYYY or DD/MM/YY
-  const dmyMatch = normalizedStr.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/);
+  // 1. Prioridad: Formato Español DD/MM/YYYY o DD/MM/YY
+  const dmyMatch = normalizedStr.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
   if (dmyMatch) {
     const day = parseInt(dmyMatch[1]);
     const month = parseInt(dmyMatch[2]);
@@ -146,30 +149,26 @@ export const parseDate = (dateVal: any): Date | null => {
     
     if (year < 100) year += 2000;
     
-    const date = new Date(year, month - 1, day);
-    if (!isNaN(date.getTime())) return date;
+    // Validar que sea una fecha lógica (Mes 1-12, Día 1-31)
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const date = new Date(year, month - 1, day);
+      if (!isNaN(date.getTime())) return date;
+    }
   }
 
-  // Try just DD (assuming current month and year 2026)
-  const dayMatch = normalizedStr.match(/^(\d{1,2})$/);
-  if (dayMatch) {
-    const day = parseInt(dayMatch[1]);
-    const now = new Date();
-    const date = new Date(2026, now.getMonth(), day);
-    if (!isNaN(date.getTime())) return date;
-  }
-
-  // Try YYYY/MM/DD
-  const ymdMatch = normalizedStr.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+  // 2. Formato ISO o Americano YYYY/MM/DD
+  const ymdMatch = normalizedStr.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
   if (ymdMatch) {
     const year = parseInt(ymdMatch[1]);
     const month = parseInt(ymdMatch[2]);
     const day = parseInt(ymdMatch[3]);
-    const date = new Date(year, month - 1, day);
-    if (!isNaN(date.getTime())) return date;
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const date = new Date(year, month - 1, day);
+      if (!isNaN(date.getTime())) return date;
+    }
   }
 
-  // Try Spanish month names (e.g., "17 de marzo")
+  // 3. Nombres de meses en español (ej: "17 de marzo")
   const spanishMonths: Record<string, number> = {
     'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4, 'mayo': 5, 'junio': 6,
     'julio': 7, 'agosto': 8, 'septiembre': 9, 'octubre': 10, 'noviembre': 11, 'diciembre': 12
@@ -187,9 +186,19 @@ export const parseDate = (dateVal: any): Date | null => {
     }
   }
 
-  // Fallback to standard Date constructor
-  const date = new Date(dateStr);
-  if (!isNaN(date.getTime())) return date;
+  // 4. Fallback final (solo si los anteriores fallan y parece una fecha válida)
+  // Evitamos usar el constructor Date directamente con strings DD/MM porque suele fallar o usar formato US
+  try {
+    const fallbackDate = new Date(dateStr);
+    if (!isNaN(fallbackDate.getTime())) {
+      // Si el fallback funciona, comprobamos si el año es razonable
+      if (fallbackDate.getFullYear() >= 2025 && fallbackDate.getFullYear() <= 2030) {
+        return fallbackDate;
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
   
   return null;
 };

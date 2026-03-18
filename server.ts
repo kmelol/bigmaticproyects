@@ -160,7 +160,7 @@ async function startServer() {
   app.post("/api/projects/:projectId/tasks", async (req, res) => {
     try {
       const { projectId } = req.params;
-      const { month, week, dynamic_data, fotos_prl, inventario, comentarios } = req.body;
+      const { month, week, dynamic_data, fotos_prl, inventario, prioritario, comentarios } = req.body;
       
       const allowedFields = [
         'Ticket cliente', 'Fecha SLA', 'Sitio', 'Población', 'Provincia'
@@ -183,6 +183,7 @@ async function startServer() {
         title,
         fotos_prl: fotos_prl || false,
         inventario: inventario || false,
+        prioritario: prioritario || false,
         comentarios: comentarios || ''
       };
       
@@ -319,6 +320,7 @@ async function startServer() {
           status: t.status || dynamicData['Estado'] || 'abierta',
           fotos_prl: t.fotos_prl || false,
           inventario: t.inventario || false,
+          prioritario: t.prioritario || false,
           comentarios: t.comentarios || ''
         };
       });

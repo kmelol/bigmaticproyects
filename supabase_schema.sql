@@ -54,3 +54,20 @@ BEGIN
     END;
   END IF;
 END $$;
+
+-- Script de actualización para asegurar que la columna 'prioritario' existe
+DO $$ 
+BEGIN 
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tasks' AND column_name='prioritario') THEN
+    ALTER TABLE tasks ADD COLUMN prioritario BOOLEAN DEFAULT false;
+  END IF;
+END $$;
+
+-- SEGURIDAD: Activar RLS (Row Level Security)
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
+
+-- Nota: Se recomienda usar la 'service_role' key en el servidor para bypass de RLS.
+-- Si se usa la 'anon' key, se deben definir políticas específicas aquí.
+
